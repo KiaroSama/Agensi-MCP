@@ -20,10 +20,12 @@
 /logs/
 /node_modules/
 /target/
+/bin/
 /.cache/
 /.state/
 /.tmp/
 /.mcp.json
+/.management.lock
 /config.local.json
 /Proxy list.txt
 /skills/

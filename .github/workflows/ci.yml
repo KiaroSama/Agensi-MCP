@@ -7,9 +7,18 @@ on:
 permissions:
   contents: read
 jobs:
-  verify:
-    runs-on: windows-2025
-    timeout-minutes: 10
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cache/cargo
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_BUILD_JOBS: 4
+      RUST_BACKTRACE: 0
     defaults:
       run:
         shell: pwsh
@@ -17,20 +26,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-          package-manager-cache: false
-      - name: Verify prerequisites
+      - name: Verify stable toolchain
         run: |
-          node --version
-          openssl version
+          rustc --version
+          cargo --version
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Install locked dependencies
-        run: npm ci --ignore-scripts
-      - name: Check source and distributable files
-        run: node scripts/check-publication.mjs
-      - name: Run bounded regression tests
-        run: npm test
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Formatting
+        run: cargo +1.99.0 fmt --all --check
+      - name: Static checks
+        run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings
+      - name: Build native executable
+        run: cargo +1.99.0 build --locked
+      - name: Prepare Windows launcher executable
+        if: runner.os == 'Windows'
+        run: |
+          New-Item bin -ItemType Directory -Force | Out-Null
+          Copy-Item target/debug/agensi-mcp.exe bin/agensi-mcp.exe
+      - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
+        run: cargo +1.99.0 test --locked --all-targets -- --test-threads=2
+      - name: Documentation tests
+        run: cargo +1.99.0 test --locked --doc
+      - name: Public package and sensitive-pattern check
+        run: pwsh -NoProfile -File scripts/check-publication.ps1

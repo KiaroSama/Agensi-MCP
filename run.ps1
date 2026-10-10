@@ -1,15 +1,13 @@
 param([switch]$Status, [switch]$Register, [switch]$Preview, [switch]$SignIn, [string]$ImportProxyList)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { Write-Error 'Node.js 24 or newer is required.'; exit 1 }
-if (-not (Test-Path (Join-Path $root 'node_modules/mcp-remote/dist/proxy.js'))) {
-    Write-Error 'Dependencies missing. Run npm install in this folder first.'; exit 1
+$manager = Join-Path $root 'bin/agensi-mcp.exe'
+if (-not (Test-Path $manager)) {
+    Write-Error 'Native Rust binary missing. Run scripts/build.ps1 first.'; exit 1
 }
-$manager = Join-Path $root 'src/manage.mjs'
 $defaultList = Join-Path $root 'Proxy list.txt'
 function Invoke-Manager([string[]]$Arguments) {
-    $output = & $node.Source $manager @Arguments
+    $output = & $manager @Arguments
     if ($LASTEXITCODE -ne 0) { throw 'Management command failed.' }
     $output | ConvertFrom-Json
 }
@@ -58,7 +56,7 @@ try {
     if ($Status) { Invoke-Manager @('status') | ConvertTo-Json -Depth 5; exit 0 }
     if ($Register) { & (Join-Path $root 'scripts/register.ps1'); exit $LASTEXITCODE }
     if ($ImportProxyList) { Import-List $ImportProxyList; exit 0 }
-    if ($SignIn) { & $node.Source (Join-Path $root 'src/bridge.mjs') --signin; exit $LASTEXITCODE }
+    if ($SignIn) { & $manager signin; exit $LASTEXITCODE }
     if ($Preview) { Show-Menu (Invoke-Manager @('status')); exit 0 }
     while ($true) {
         $state = Invoke-Manager @('status')
@@ -90,7 +88,7 @@ try {
                     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
                     try {
                         $url = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-                        $output = $url | & $node.Source $manager add $name --stdin
+                        $output = $url | & $manager add $name --stdin
                         if ($LASTEXITCODE -ne 0) { throw 'Proxy was not saved.' }
                         Write-Host 'Proxy profile added.' -ForegroundColor Green
                     } finally { $url = $null; [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
@@ -105,7 +103,7 @@ try {
                 '6' { & (Join-Path $root 'scripts/register.ps1') }
                 '7' {
                     Write-Host 'Copy the complete sign-in URL into your external browser. Keep this window open.' -ForegroundColor Cyan
-                    & $node.Source (Join-Path $root 'src/bridge.mjs') --signin
+                    & $manager signin
                     if ($LASTEXITCODE -ne 0) { throw 'Sign-in did not finish. No session claimed.' }
                 }
                 'exit' { exit 0 }

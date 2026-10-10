@@ -1,0 +1,791 @@
+{
+  "source": {
+    "runtime": "v24.21.0",
+    "commit": "2a7a6553cbcd9c033998d2ed90d603c1cc88bf00",
+    "files": [
+      "src/config.mjs",
+      "src/proxy-import.mjs",
+      "src/signin.mjs"
+    ],
+    "contract": "structural JSON and exact sanitized errors",
+    "generatedUtc": "2026-10-10"
+  },
+  "proxies": [
+    {
+      "name": "proxy-0",
+      "input": "http://localhost:80",
+      "expected": {
+        "href": "http://localhost/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "http",
+              "host": "localhost",
+              "port": 80,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-1",
+      "input": "https://localhost:443/",
+      "expected": {
+        "href": "https://localhost/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "https",
+              "host": "localhost",
+              "port": 443,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-2",
+      "input": "socks4://user@127.0.0.1:1080",
+      "expected": {
+        "href": "socks4://user@127.0.0.1:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks4",
+              "host": "127.0.0.1",
+              "port": 1080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-3",
+      "input": "socks4a://user@localhost:1080",
+      "expected": {
+        "href": "socks4a://user@localhost:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks4a",
+              "host": "localhost",
+              "port": 1080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-4",
+      "input": "socks5://example.invalid:1080",
+      "expected": {
+        "href": "socks5://example.invalid:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks5",
+              "host": "example.invalid",
+              "port": 1080,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-5",
+      "input": "socks5h://fixture-user:fixture-pass@[::1]:1080",
+      "expected": {
+        "href": "socks5h://fixture-user:fixture-pass@[::1]:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks5h",
+              "host": "[::1]",
+              "port": 1080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-6",
+      "input": "http://EXAMPLE.invalid:080",
+      "expected": {
+        "href": "http://example.invalid/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "http",
+              "host": "example.invalid",
+              "port": 80,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-7",
+      "input": "socks5://EXAMPLE.invalid:001080",
+      "expected": {
+        "href": "socks5://EXAMPLE.invalid:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks5",
+              "host": "EXAMPLE.invalid",
+              "port": 1080,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-8",
+      "input": "http://u%40x:p%25%F0%9F%98%80@localhost:8080",
+      "expected": {
+        "href": "http://u%40x:p%25%F0%9F%98%80@localhost:8080/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "http",
+              "host": "localhost",
+              "port": 8080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-9",
+      "input": "http://localhost",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-10",
+      "input": "http://localhost:0",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-11",
+      "input": "http://localhost:65536",
+      "expected": null,
+      "error": "Invalid proxy URL."
+    },
+    {
+      "name": "proxy-12",
+      "input": "http://localhost:8080/path",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-13",
+      "input": "http://localhost:8080?",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-14",
+      "input": "http://localhost:8080#",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-15",
+      "input": "ftp://localhost:21",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-16",
+      "input": "socks4://user:fixture-pass@localhost:1080",
+      "expected": null,
+      "error": "SOCKS4 supports a user ID, not password authentication."
+    },
+    {
+      "name": "proxy-17",
+      "input": "http://user%GG:fixture-pass@localhost:8080",
+      "expected": null,
+      "error": "Invalid percent-encoded proxy credentials."
+    },
+    {
+      "name": "proxy-18",
+      "input": "http://%FF:fixture-pass@localhost:8080",
+      "expected": null,
+      "error": "Invalid percent-encoded proxy credentials."
+    },
+    {
+      "name": "proxy-19",
+      "input": "http://u:p@@localhost:8080",
+      "expected": {
+        "href": "http://u:p%40@localhost:8080/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "http",
+              "host": "localhost",
+              "port": 8080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-20",
+      "input": " http://localhost:80",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-21",
+      "input": "http://localhost:80\n",
+      "expected": null,
+      "error": "Proxy needs a supported scheme, host and explicit port; no path or query."
+    },
+    {
+      "name": "proxy-22",
+      "input": "socks5://u:@localhost:1080",
+      "expected": {
+        "href": "socks5://u@localhost:1080",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "socks5",
+              "host": "localhost",
+              "port": 1080,
+              "authenticated": true
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "name": "proxy-23",
+      "input": "http://:fixture-pass@localhost:8080",
+      "expected": {
+        "href": "http://:fixture-pass@localhost:8080/",
+        "status": {
+          "mode": "disconnected",
+          "selected": null,
+          "profiles": [
+            {
+              "name": "fixture",
+              "protocol": "http",
+              "host": "localhost",
+              "port": 8080,
+              "authenticated": false
+            }
+          ]
+        }
+      },
+      "error": null
+    }
+  ],
+  "configs": [
+    {
+      "name": "config-0",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": []
+      },
+      "expected": {
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": []
+      },
+      "error": null
+    },
+    {
+      "name": "config-1",
+      "input": {
+        "schema": 1,
+        "mode": "direct",
+        "selected": "unused",
+        "profiles": [],
+        "future": {
+          "keep": true
+        }
+      },
+      "expected": {
+        "mode": "direct",
+        "selected": "unused",
+        "profiles": []
+      },
+      "error": null
+    },
+    {
+      "name": "config-2",
+      "input": {
+        "schema": 1,
+        "mode": "proxy",
+        "selected": "fixture",
+        "profiles": [
+          {
+            "name": "fixture",
+            "url": "http://localhost:80",
+            "future": "keep"
+          }
+        ]
+      },
+      "expected": {
+        "mode": "proxy",
+        "selected": "fixture",
+        "profiles": [
+          {
+            "name": "fixture",
+            "protocol": "http",
+            "host": "localhost",
+            "port": 80,
+            "authenticated": false
+          }
+        ]
+      },
+      "error": null
+    },
+    {
+      "name": "config-3",
+      "input": {
+        "schema": 1,
+        "mode": "proxy",
+        "selected": "missing",
+        "profiles": []
+      },
+      "expected": null,
+      "error": "Selected proxy is missing; connection blocked."
+    },
+    {
+      "name": "config-4",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": [
+          {
+            "name": "x",
+            "url": "http://localhost:80"
+          },
+          {
+            "name": "X",
+            "url": "https://localhost:443"
+          }
+        ]
+      },
+      "expected": null,
+      "error": "Proxy names must be unique, 1-80 plain characters."
+    },
+    {
+      "name": "config-5",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": [
+          {
+            "name": " café",
+            "url": "http://localhost:80"
+          }
+        ]
+      },
+      "expected": null,
+      "error": "Proxy names must be unique, 1-80 plain characters."
+    },
+    {
+      "name": "config-6",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": [
+          {
+            "name": "trailing ",
+            "url": "http://localhost:80"
+          }
+        ]
+      },
+      "expected": null,
+      "error": "Proxy names must be unique, 1-80 plain characters."
+    },
+    {
+      "name": "config-7",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": [
+          {
+            "name": "fixture",
+            "url": "invalid"
+          }
+        ]
+      },
+      "expected": null,
+      "error": "Invalid proxy URL."
+    },
+    {
+      "name": "config-8",
+      "input": {
+        "schema": 2,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": []
+      },
+      "expected": null,
+      "error": "Invalid route settings; connection blocked."
+    },
+    {
+      "name": "config-9",
+      "input": {
+        "schema": 1,
+        "mode": "invalid",
+        "selected": null,
+        "profiles": []
+      },
+      "expected": null,
+      "error": "Invalid route settings; connection blocked."
+    },
+    {
+      "name": "config-10",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": 123,
+        "profiles": []
+      },
+      "expected": null,
+      "error": "Invalid route settings; connection blocked."
+    },
+    {
+      "name": "config-11",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "profiles": []
+      },
+      "expected": null,
+      "error": "Invalid route settings; connection blocked."
+    },
+    {
+      "name": "config-12",
+      "input": {
+        "schema": 1,
+        "mode": "disconnected",
+        "selected": null,
+        "profiles": [
+          {
+            "name": "fixture"
+          }
+        ]
+      },
+      "expected": null,
+      "error": "Invalid proxy URL."
+    }
+  ],
+  "lists": [
+    {
+      "name": "list-0",
+      "input": "﻿socks5://127.0.0.1:1080:fixture-user:fixture-pass:UK 5\r\n\r\nhttps://localhost:443:user:pa@ss%word:HTTPS\n",
+      "expected": [
+        {
+          "name": "UK 5",
+          "url": "socks5://fixture-user:fixture-pass@127.0.0.1:1080",
+          "line": 1
+        },
+        {
+          "name": "HTTPS",
+          "url": "https://user:pa%40ss%25word@localhost:443",
+          "line": 3
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "list-1",
+      "input": "socks4a://localhost:1080:user::Socks four\nhttp://[::1]:80:::IPv6",
+      "expected": [
+        {
+          "name": "Socks four",
+          "url": "socks4a://user:@localhost:1080",
+          "line": 1
+        },
+        {
+          "name": "IPv6",
+          "url": "http://[::1]:80",
+          "line": 2
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "list-2",
+      "input": "socks5://localhost:1080:!$&'()*+,;=@% café:pass/?: special\n",
+      "expected": [
+        {
+          "name": "special",
+          "url": "socks5://!%24%26'()*%2B%2C%3B%3D%40%25%20caf%C3%A9:pass%2F%3F@localhost:1080",
+          "line": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "list-3",
+      "input": "socks5://localhost:1080:::same\nsocks5://localhost:1080:::SAME",
+      "expected": [
+        {
+          "name": "same",
+          "url": "socks5://localhost:1080",
+          "line": 1
+        },
+        {
+          "name": "SAME",
+          "url": "socks5://localhost:1080",
+          "line": 2
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "list-4",
+      "input": "",
+      "expected": null,
+      "error": "Proxy list contains no entries."
+    },
+    {
+      "name": "list-5",
+      "input": "﻿ \r\n",
+      "expected": null,
+      "error": "Proxy list contains no entries."
+    },
+    {
+      "name": "list-6",
+      "input": "not-a-proxy",
+      "expected": null,
+      "error": "Line 1: invalid proxy format, name or credentials; nothing imported."
+    },
+    {
+      "name": "list-7",
+      "input": "socks5://localhost:1080:::ok\ninvalid fixture-pass",
+      "expected": null,
+      "error": "Line 2: invalid proxy format, name or credentials; nothing imported."
+    },
+    {
+      "name": "list-8",
+      "input": "socks4://localhost:1080:user:fixture-pass:invalid",
+      "expected": null,
+      "error": "Line 1: invalid proxy format, name or credentials; nothing imported."
+    },
+    {
+      "name": "list-9",
+      "input": "http://localhost:80::: bad name ",
+      "expected": [
+        {
+          "name": "bad name",
+          "url": "http://localhost:80",
+          "line": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "list-10",
+      "input": "http://localhost:80:::café",
+      "expected": null,
+      "error": "Line 1: invalid proxy format, name or credentials; nothing imported."
+    }
+  ],
+  "callbacks": [
+    {
+      "name": "callback-0",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&code=fixture-code&iss=https%3A%2F%2Foauth-fixture.test",
+        "state": "expected"
+      },
+      "expected": {
+        "authorizationCode": "fixture-code",
+        "iss": "https://oauth-fixture.test"
+      },
+      "error": null
+    },
+    {
+      "name": "callback-1",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": {
+        "authorizationCode": "fixture-code"
+      },
+      "error": null
+    },
+    {
+      "name": "callback-2",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=wrong&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-3",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-4",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-5",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expecteD&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-6",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=%C3%A9xpected&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-7",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=&code=fixture-code",
+        "state": ""
+      },
+      "expected": null,
+      "error": "Invalid authorization state."
+    },
+    {
+      "name": "callback-8",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&error=access_denied&code=fixture-code",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Authorization was not approved."
+    },
+    {
+      "name": "callback-9",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&error=",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Authorization was not approved."
+    },
+    {
+      "name": "callback-10",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Authorization was not approved."
+    },
+    {
+      "name": "callback-11",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&code=",
+        "state": "expected"
+      },
+      "expected": null,
+      "error": "Authorization was not approved."
+    },
+    {
+      "name": "callback-12",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&code=fixture-code&iss=",
+        "state": "expected"
+      },
+      "expected": {
+        "authorizationCode": "fixture-code"
+      },
+      "error": null
+    },
+    {
+      "name": "callback-13",
+      "input": {
+        "url": "http://127.0.0.1/oauth/callback?state=expected&code=fixture-code&iss=https%3A%2F%2Fother-fixture.test",
+        "state": "expected"
+      },
+      "expected": {
+        "authorizationCode": "fixture-code",
+        "iss": "https://other-fixture.test"
+      },
+      "error": null
+    }
+  ]
+}

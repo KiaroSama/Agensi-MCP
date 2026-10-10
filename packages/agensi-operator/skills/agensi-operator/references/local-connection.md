@@ -4,9 +4,9 @@ A skill/plugin is not an MCP server and does not grant account access. This pack
 
 ## Management interface
 
-In the connection-manager project root, `run.ps1` provides proxy import/selection, explicit direct mode, disconnect, client registration and manual sign-in. `node src/manage.mjs status` returns sanitized route metadata. Read current README/source before invoking commands; do not hardcode a machine's installation directory.
+In the connection-manager project root, `run.ps1` provides proxy import/selection, explicit direct mode, disconnect, client registration and manual sign-in. `./bin/agensi-mcp.exe status` returns sanitized route metadata. Read current README/source before invoking commands; do not hardcode a machine's installation directory.
 
-Change a profile only when requested: `node src/manage.mjs select "<saved-name>"`. Reconnect MCP clients after a route change. Do not read credential-bearing proxy/config/auth files into chat or publish them.
+Change a profile only when requested: `./bin/agensi-mcp.exe select "<saved-name>"`. Reconnect MCP clients after a route change. Do not read credential-bearing proxy/config/auth files into chat or publish them.
 
 ## Routing
 
@@ -32,4 +32,4 @@ Inspect sanitized status and newest relevant operational log. Classify disconnec
 
 For unknown charged/submitted outcome, reconcile ownership/listing activity before another attempt. Retry read-only checks within bounded budgets; require the exact human/configuration step that evidence calls for, not secret values. Kill only task-owned temporary processes.
 
-Sources: connection-manager README and source; [Agensi MCP setup](https://agensi.io/docs/mcp-setup), [mcp-remote](https://github.com/punkpeye/mcp-remote). Public source describes behavior, not a guarantee that every client or live service environment has been tested.
+Sources: connection-manager README and source; [Agensi MCP setup](https://agensi.io/docs/mcp-setup), [official Rust SDK](https://github.com/modelcontextprotocol/rust-sdk). Public source describes behavior, not a guarantee that every client or live service environment has been tested.

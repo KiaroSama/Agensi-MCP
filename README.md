@@ -3,163 +3,172 @@
 <div align="center">
 
 [![CI](https://github.com/KiaroSama/Agensi-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/KiaroSama/Agensi-MCP/actions/workflows/ci.yml)
-[![License GPLv3](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
-[![Node 24.21+](https://img.shields.io/badge/Node-24.21%2B-43853d)](package.json)
-[![PowerShell 7](https://img.shields.io/badge/PowerShell-7-5391fe)](run.ps1)
+[![GPLv3](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-1.99%2B-dea584)](Cargo.toml)
+[![PowerShell](https://img.shields.io/badge/PowerShell-7-5391fe)](run.ps1)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078d4)](#start)
-[![JavaScript ESM](https://img.shields.io/badge/JavaScript-ESM-f7df1e)](src/bridge.mjs)
+[![Linux core](https://img.shields.io/badge/Core-Linux-64748b)](.github/workflows/ci.yml)
 [![MCP](https://img.shields.io/badge/Protocol-MCP-7c3aed)](https://modelcontextprotocol.io/)
 [![Streamable HTTP](https://img.shields.io/badge/Transport-Streamable_HTTP-2563eb)](https://agensi.io/mcp)
-[![mcp-remote](https://img.shields.io/badge/Bridge-mcp--remote-64748b)](https://github.com/punkpeye/mcp-remote)
-[![Undici](https://img.shields.io/badge/HTTP-Undici-334155)](https://github.com/nodejs/undici)
-[![SOCKS](https://img.shields.io/badge/Proxy-SOCKS-0f766e)](#proxy-behavior)
-[![Documentation](https://img.shields.io/badge/Docs-README-0284c7)](#operator-skill-and-plugins)
+[![rmcp](https://img.shields.io/badge/SDK-rmcp-64748b)](https://github.com/modelcontextprotocol/rust-sdk)
+[![Reqwest](https://img.shields.io/badge/HTTP-reqwest-334155)](https://github.com/seanmonstar/reqwest)
+[![SOCKS](https://img.shields.io/badge/Proxy-SOCKS-0f766e)](#routing)
+[![Docs](https://img.shields.io/badge/Docs-README-0284c7)](#operator-guidance)
 [![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
 
 </div>
 
-Project-local Agensi connection manager with named fail-closed proxies, manual OAuth sign-in and
-original operating/skill-optimization guidance. The remote service remains hosted at
-https://mcp.agensi.io/mcp. This is an independent integration, not Agensi's server or an official
-Agensi product. It does not make purchases or publish marketplace listings automatically.
+Native Rust connection manager and stdio↔Streamable HTTP Agensi bridge, with named fail-closed
+proxies, manual OAuth and original multi-client operating guidance. No Node runtime is invoked.
+Agensi's server stays at https://mcp.agensi.io/mcp; this independent project is not an official Agensi
+product, marketplace listing or account authorization.
 
 ## Start
 
-Requirements: existing Node.js24.21+ and PowerShell7. Install locked project dependencies:
+Requirements: existing Rust1.99+ for building, PowerShell7 for the Windows launcher. Build dependencies,
+Cargo cache and target output stay under this project. No global runtime is installed automatically.
 
 ```bash
-npm ci --ignore-scripts
+pwsh -NoProfile -File scripts/build.ps1
 ```
-
-Open the menu from the project folder:
 
 ```bash
-pwsh -NoProfile -File ./run.ps1
+pwsh -NoProfile -File run.ps1
 ```
 
-1. Import a proxy list with option1; Enter uses the local list beside the launcher.
-2. Select a profile with option2. Initial mode is **disconnected** until proxy selection or explicit direct mode.
-3. Use option7, copy the full genuine sign-in URL into your external browser on this machine and keep the listener open.
-4. After a usable session is saved, reconnect your MCP client. Option6 registers the bridge in Desktop and user-scope Code without replacing unrelated entries.
+1. Import proxies with option1 (default local list beside launcher).
+2. Select a named profile with option2. Initial mode is disconnected; option4 explicitly enables direct.
+3. Use option7 and copy the complete real authorization URL into an external browser on this machine.
+4. Keep listener open until approval; reconnect your MCP client. Option6 registers the native executable.
 
-Main menu shows only mode, selected profile and saved count; profiles appear in the selection submenu.
-`exit` quits. Registration changes client settings and should only be used when intended.
+Main menu shows only connection/selection/count; saved profiles appear in selection submenu. `exit`
+quits. A registration conflict is refused; review existing settings rather than silently replacing them.
 
-## Manual sign-in
+## Desktop entry
 
-```bash
-pwsh -NoProfile -File ./run.ps1 -SignIn
+After build, merge this example into `mcpServers`, replacing the example root with your actual folder.
+Other server entries must remain unchanged.
+
+```json
+{
+  "mcpServers": {
+    "agensi": {
+      "command": "<absolute-project-root>/bin/agensi-mcp.exe",
+      "args": ["bridge"]
+    }
+  }
+}
 ```
 
-Authorization is human-initiated; no browser auto-opens. Callback waits up to five minutes. Tokens
-stay in project-local authentication storage and are reused by the bridge. Login and bridge discover
-identical resource scopes and share a stable callback identity. A busy callback port fails explicitly.
-Never paste tokens, authorization codes or callback URLs into chat.
+On Windows JSON paths can use `/` or escaped `\\`. The native binary resolves its installation root
+from its own ancestors; caller CWD and spaces do not change route/auth/log storage.
 
-Public connectivity does not prove login. Account-scoped reads do not prove creator/payout readiness.
-A failed readiness response remains unknown even if a web dashboard says active. Browser login and
-checkout use the browser's own routing, not this bridge's proxy policy.
+## Routing
 
-## Import proxies
+HTTP/HTTPS/SOCKS4/SOCKS4a/SOCKS5/SOCKS5h. Ordinary4/5 use local destination DNS;4a/5h use proxy-side
+DNS. Proxy-host DNS can still be local. TLS certificates remain verified.
 
-UTF-8 rows use a final **display name** field:
+No direct/alternate fallback or environment NO_PROXY bypass. Invalid/unreachable selected proxy blocks
+traffic. A route change invalidates old relay within the200ms watcher; reconnect clients. Unknown
+charged/upload outcomes are reconciled before retrying, never automatically replayed.
+
+Reqwest handles standard routes. A narrow native authenticated loopback adapter preserves SOCKS4
+user IDs that reqwest's upstream connector otherwise ignores. It always tunnels to the selected proxy,
+never the destination directly; owns bounded sessions and closes when dropped. SOCKS4 has no password
+or IPv6 destination. Browser OAuth/checkout routing is separate; this is not an OS-wide firewall.
+
+## Proxy import and management
+
+UTF-8 six-field rows with final display name; example values only:
 
 ```text
 socks5://127.0.0.1:1080:example-user:example-password:Example Proxy
 ```
 
-These are examples, not real credentials. The six-field format does not support colons inside values.
-Import preserves the current route, skips identical duplicates and cancels atomically on conflicting
-names/malformed rows, reporting line numbers without credential values. Limits:100 profiles and1MiB
-input. Keep real proxy lists private.
+Import is additive/atomic, skips identical duplicates, rejects conflicting names without altering route.
+Malformed rows report only sanitized line numbers. Limits100 saved profiles/1MiB list; field values
+cannot contain colons. Proxy passwords never belong in public source or chat.
 
 ```bash
-pwsh -NoProfile -File ./run.ps1 -ImportProxyList ./my-private-proxies.txt
+./bin/agensi-mcp.exe status
 ```
-
-## Proxy behavior
-
-HTTP/HTTPS/SOCKS4/SOCKS5, plus SOCKS4a/SOCKS5h, are supported. Ordinary4/5 resolve destination DNS
-locally;4a/5h use proxy-side destination DNS. Proxy-host DNS can remain local. SOCKS4 accepts user ID,
-not password authentication or IPv6 destination. TLS certificates are validated.
-
-There is **no direct fallback, automatic alternate-profile switch or NO_PROXY bypass**. Invalid or
-failed selected proxy blocks connection. Route changes invalidate old connections within the200ms
-watcher interval; reconnect clients. Interrupted billable/upload operations are not replayed. Reconcile
-unknown ownership/listing outcomes before retrying. Own loopback OAuth coordination is the narrow
-direct exception. This is application routing, not an OS firewall or all-Claude/browser proxy.
-
-## Operator skill and plugins
-
-Original GPLv3 guidance is in [packages/agensi-operator](packages/agensi-operator/README.md):
-search/select workflows, market-demand hypotheses, matched competitive comparisons, draft optimization,
-privacy/payment/license rules and safe tool use. It is not a skill submitted for sale.
-
-- Claude/Codex/Cursor: portable root plus native compatibility manifests.
-- Antigravity: [separate native root](packages/agensi-operator-antigravity/README.md), because its schema differs.
-- Standalone: copy the contained skill into the host's documented project skill directory.
-- No plugin MCP declaration, hooks, auto-install, account credentials or tool preapproval.
-
-Read the package guide before installation; file presence does not prove native discovery. Avoid
-multiple copies in overlapping host skill directories. Actual loading on all four clients is unverified.
-
-[Evaluation method/results](docs/operator-evaluation.md) records a real paired fresh-agent output
-experiment. The competent baseline also met core requirements; no statistical effectiveness lift,
-actual buyer-payment validation or guaranteed sales claim is made. Public installs are not sales.
-
-## Inline marketplace files
-
-After a specifically approved free/owned one-time install, save returned path/content files as a local
-JSON array (or object with `files`) and use:
 
 ```bash
-node src/manage.mjs save-skill example ./returned-files.json
+./bin/agensi-mcp.exe select "Example Proxy"
 ```
 
-The helper validates paths, UTF-8, required SKILL.md, case-insensitive duplicates, device/ADS names,
-traversal and linked ancestors; existing packages are refused. It saves project-local files without
-executing scripts or activating global skills. Subscription skills are cloud-only. Purchases, trials,
-cloud data transfer, media uploads and Creator submission each need their own approval. Even a
-submission preview uploads content; submission/review/live are different states.
+## Manual OAuth
 
-## Sensitive data and logging
+```bash
+./bin/agensi-mcp.exe signin
+```
 
-Do not publish or share runtime configuration, proxy credentials, authentication state, acquired
-skill contents or operational logs wholesale. Tokens/proxy settings are not encrypted vault storage;
-restrict directory access appropriately. The repository distributes original source and guidance only.
+Current official SDK handles discovery/scopes/PKCE/state/issuer/token refresh. Human opens the genuine
+full URL; no automatic browser. Five-minute callback budget and stable local callback identity. Safe
+issuer/scope/expiry-compatible public-client legacy sessions can be imported without extending receipt
+time; original data is preserved. Incompatible caches require human renewed login, not weakened checks.
+Stored credentials are project-local, not encrypted vault storage; restrict directory access.
 
-Each executable management/bridge run writes a new UTF-8 file in `logs/`, named
-`agensi-menu_YYYY-MM-DD_HH-mm-ss_UTC_<pid>.log` or equivalent `agensi-bridge` name. Entries use
-`[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [COMPONENT] Message`. Lifecycle/failures are recorded without
-protocol bodies, passwords/tokens or sign-in URLs. Initialization failure falls back to stderr;
-handlers close on normal shutdown. Retention is manual. Share reviewed sanitized excerpts only.
+Public connectivity, account read, creator/payout readiness and submitted/approved/live listing are
+separate evidence layers. Read-only `probe` lists tools and checks an account-scoped response; it does
+not buy, upload or verify creator eligibility. Never paste tokens/codes/callback URLs in chat.
+
+## Inline skill files
+
+After specific approved free/owned one-time install, save returned path/content array or `files` object
+as local JSON, then:
+
+```bash
+./bin/agensi-mcp.exe save-skill example ./returned-files.json
+```
+
+Exact UTF-8, root SKILL.md, max500files/20MiB; traversal, ADS/device/linked ancestors, case duplicates
+and existing packages refused. Staging/atomic rename preserves originals. No script execution or global
+activation. Cloud-only subscriptions stay cloud-only; cost/data/trial/install/creator actions need
+separate scope/approval. Submission preview itself transfers files externally.
+
+## Operator guidance
+
+[Original GPLv3 operator package](packages/agensi-operator/README.md) includes search/selection,
+demand hypotheses, matched competitive validation, skill optimization, policies/privacy and safe tool
+workflows. Claude/Codex/Cursor native compatibility manifests; Antigravity has a separate root format.
+No plugin MCP/autostart/hooks/tool preapproval. File presence is not native loading evidence.
+
+[Paired-output experiment](docs/operator-evaluation.md): competent baseline also meets core criteria;
+no proven statistical effectiveness lift or real payment validation. Installs do not establish sales,
+conversion, revenue or causality. No private/acquired marketplace instructions redistributed.
+
+## Logging
+
+New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>.log`. Entries:
+`[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [COMPONENT] Message`. Safe startup/failure/shutdown metadata only;
+no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses stderr. Vendor debug
+logging stays disabled because third-party protocol logs may expose credential bytes. Retention manual;
+share reviewed sanitized excerpts only. Preserve real operational logs during cleanup.
 
 ## Tests and CI
 
 ```bash
-npm test
+cargo test --locked --all-targets -- --test-threads=2
 ```
 
-Node's built-in runner executes bounded loopback routing/TLS, profile persistence/import, exact inline
-files, PowerShell menu, file-URL preload and fake OAuth session/scope regressions. TLS fixtures need
-OpenSSL; PowerShell tests need `pwsh`. No test purchases, publishes or contacts Agensi. Clean-checkout
-preload testing uses an isolated configuration and never changes the owner's route/token state.
+Use project CARGO_HOME/target environment as in build script. Windows launcher test requires built
+`bin/agensi-mcp.exe`; Linux tests cover portable core, not Windows GUI/client integration.
 
-CI on Windows2025 selects Node24.21, installs lockfile with scripts disabled, checks source/package
-UTF-8/privacy patterns/reference parity, runs regression tests and audits production dependencies.
-Job and test deadlines are bounded. Dependabot covers npm and Actions. Real service auth/payout,
-private real-input scenarios, other OS launchers and native four-client integration remain separate
-from those automated checks. A TLS-IP fixture can emit Node's SNI deprecation warning; no TLS
-validation is disabled to silence it.
+CI Windows2025 and Ubuntu24.04: pinned Rust toolchain, fmt, clippy warnings-as-errors, locked build,
+source-oracle management/callback parity, real loopback proxy/DNS/auth handshakes, no-bypass/redirect,
+SOCKS4userid lifetime, SDK bidirectional protocol/custom/cancel/backpressure/route change, OAuthPKCE
+callback/session, TLS untrusted-certificate rejection, native entry/menu and public-package checks.
+Testcases have local deadlines; jobs have outer time budgets and constrained compile/test concurrency.
+No tests purchase, publish or contact Agensi. Source parity and known limitations:
+[Migration contracts](docs/migration-contracts.md). Positive custom-CA HTTPS-proxy parity and full
+native four-client loading remain separate unverified scenarios; live read-only probe alone is not all
+production behavior. Rust CodeQL and dependency metadata checks run alongside core CI.
 
 ## License
 
-Copyright2026 Kiaro Sama. Original project source and operating guidance are licensed under
-[GNU General Public License version3 only](LICENSE), SPDX `GPL-3.0-only`. Dependencies and referenced
-third-party sources retain their own licenses. No proprietary marketplace instruction sets are included.
-
-Sources: [Agensi setup](https://agensi.io/docs/mcp-setup), [mcp-remote](https://github.com/punkpeye/mcp-remote),
-[Claude MCP](https://code.claude.com/docs/en/mcp), [Agent Skills](https://agentskills.io/specification).
+Copyright2026 Kiaro Sama. Original project code/guidance: [GNU GPLv3 only](LICENSE),
+SPDX `GPL-3.0-only`. Dependencies and referenced sources retain their licenses.
 
 ## Donate
 

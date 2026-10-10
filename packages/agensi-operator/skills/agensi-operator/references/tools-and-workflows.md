@@ -61,7 +61,7 @@ Installation is distinct from executing instructions. `install_skill(skill_slug,
 4. Prefer inline files; do not download ZIP unnecessarily. Archives, if genuinely required, need the same path/link/size/content checks and no automatic script execution.
 5. Verify complete files and separately verify host loadability. If write access is unavailable, report no installation and follow allowed instructions in the current conversation only when accessible.
 
-In this connection-manager project, reuse `src/manage.mjs save-skill <name> <json-path>` instead of writing another unsafe extractor. It refuses an existing package and requires root SKILL.md. Inspect the current helper and project root before invoking; its storage is project-local, not automatically global installation.
+In this connection-manager project, reuse `native/src/management.rs save-skill <name> <json-path>` instead of writing another unsafe extractor. It refuses an existing package and requires root SKILL.md. Inspect the current helper and project root before invoking; its storage is project-local, not automatically global installation.
 
 ## Update acquired skills
 
