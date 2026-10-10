@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, ubuntu-24.04]
+        os: [windows-2025, ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
@@ -43,6 +43,13 @@ jobs:
         run: |
           New-Item bin -ItemType Directory -Force | Out-Null
           Copy-Item target/debug/agensi-mcp.exe bin/agensi-mcp.exe
+      - name: Prepare Unix launcher executable
+        if: runner.os != 'Windows'
+        run: |
+          New-Item bin -ItemType Directory -Force | Out-Null
+          Copy-Item target/debug/agensi-mcp bin/agensi-mcp
+          chmod +x bin/agensi-mcp
+          bash run.sh status
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
         run: cargo +1.99.0 test --locked --all-targets -- --test-threads=2
       - name: Documentation tests
