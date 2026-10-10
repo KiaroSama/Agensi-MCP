@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agensi": {
+      "command": "<absolute-project-root>/bin/agensi-mcp.exe",
+      "args": ["bridge"]
+    }
+  }
+}

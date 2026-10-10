@@ -11,7 +11,7 @@ try {
         if ($name -match $blocked) { throw "Private/generated publication path refused: $name" }
         $file = Join-Path $root $name
         if (-not (Test-Path $file -PathType Leaf)) { continue }
-        if ((Get-Item $file).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked publication file refused: $name" }
+        if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked publication file refused: $name" }
         $text = [IO.File]::ReadAllText($file, $utf8)
         if ($text -match $secret) { throw "Sensitive-pattern match: $name; value omitted." }
         if ($name -match '\.(rs|ps1)$' -and ($text -split "`n").Count -gt 800) { throw "Source line ceiling exceeded: $name" }
