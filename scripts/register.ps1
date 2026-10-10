@@ -1,9 +1,10 @@
 param([switch]$DryRun, [string]$DesktopConfigPath)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$node = (Get-Command node -ErrorAction Stop).Source
+$binary = Join-Path $root 'bin/agensi-mcp.exe'
+if (-not (Test-Path $binary)) { throw 'Build the native Rust executable before registration.' }
 $claude = Get-Command claude -ErrorAction Stop
-$entry = @{ command = $node; args = @((Join-Path $root 'src/bridge.mjs')) }
+$entry = @{ command = $binary; args = @('bridge') }
 if (-not $DesktopConfigPath) {
     $normal = Join-Path $env:APPDATA 'Claude/claude_desktop_config.json'
     $packages = Join-Path $env:LOCALAPPDATA 'Packages'
