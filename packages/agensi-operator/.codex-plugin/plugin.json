@@ -1,0 +1,12 @@
+{
+  "name": "agensi-operator",
+  "version": "1.2.0",
+  "description": "Internal Agensi marketplace research and operating guidance with explicit action and data approval boundaries.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agensi Operator",
+    "shortDescription": "Internal marketplace research and safe operations",
+    "category": "Productivity"
+  },
+  "license": "GPL-3.0-only"
+}

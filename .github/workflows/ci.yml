@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - name: Verify prerequisites
+        run: |
+          node --version
+          openssl version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Check source and distributable files
+        run: node scripts/check-publication.mjs
+      - name: Run bounded regression tests
+        run: npm test
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

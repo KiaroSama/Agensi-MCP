@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agensi-operator",
+  "version": "1.2.0",
+  "description": "Internal Agensi marketplace research and operating guidance with explicit action and data approval boundaries.",
+  "license": "GPL-3.0-only"
+}

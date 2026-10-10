@@ -1,0 +1,14 @@
+{
+  "name": "agensi-operator-local",
+  "owner": {
+    "name": "Kiaro Sama"
+  },
+  "plugins": [
+    {
+      "name": "agensi-operator",
+      "source": "./",
+      "description": "Internal Agensi operating guidance.",
+      "version": "1.2.0"
+    }
+  ]
+}
