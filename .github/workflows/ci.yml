@@ -69,6 +69,9 @@ jobs:
           Copy-Item target/debug/agensi-mcp bin/agensi-mcp
           chmod +x bin/agensi-mcp
           bash run.sh status
+      - name: Isolated registration upgrade and preservation tests
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File scripts/test-registration.ps1
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
         run: cargo +1.99.0 test --locked --all-targets -- --test-threads=2
       - name: Documentation tests

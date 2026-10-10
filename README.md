@@ -136,6 +136,13 @@ The Windows menu provides these setup actions:
 
 Main menu shows only connection/selection/count; saved profiles appear in selection submenu. `exit`
 quits. A registration conflict is refused; review existing settings rather than silently replacing them.
+To explicitly upgrade only this project's old Node/native Agensi entry (other servers are preserved):
+
+```bash
+pwsh -NoProfile -File scripts/register.ps1 -UpgradeProjectEntry
+```
+
+An entry belonging to a different project is refused even with this switch.
 
 ## Desktop entry
 
@@ -147,7 +154,12 @@ Other server entries must remain unchanged.
   "mcpServers": {
     "agensi": {
       "command": "<absolute-project-root>/bin/agensi-mcp.exe",
-      "args": ["bridge"]
+      "args": ["bridge"],
+      "env": {
+        "TEMP": "<absolute-project-root>/.tmp",
+        "TMP": "<absolute-project-root>/.tmp",
+        "TMPDIR": "<absolute-project-root>/.tmp"
+      }
     }
   }
 }
@@ -198,8 +210,9 @@ are trusted and can use the saved Agensi session. Never expose or forward this p
 
 ## Cache and state paths
 
-The executable derives the project root from its own installed location; no Desktop `env` entry is
-needed to choose its runtime paths. Saved OAuth session: `.state/auth/rust-session.json`; refresh lock
+The executable derives the project root from its own installed location. Runtime files are explicitly
+project-local; Desktop `env` values above additionally direct generic dependency temporary files into
+project `.tmp`. Create that directory before launch (the registration script creates it automatically). Saved OAuth session: `.state/auth/rust-session.json`; refresh lock
 alongside it. Proxy/settings: `config.local.json`; logs: `logs/`. No native runtime download cache is
 needed to run a built binary. Cargo's build/download cache is `.cache/cargo` only during builds, with
 build outputs in `target`; build scripts set those paths explicitly. These paths are independent of

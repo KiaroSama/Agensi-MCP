@@ -2,7 +2,12 @@
   "mcpServers": {
     "agensi": {
       "command": "<absolute-project-root>/bin/agensi-mcp.exe",
-      "args": ["bridge"]
+      "args": ["bridge"],
+      "env": {
+        "TEMP": "<absolute-project-root>/.tmp",
+        "TMP": "<absolute-project-root>/.tmp",
+        "TMPDIR": "<absolute-project-root>/.tmp"
+      }
     }
   }
 }

@@ -3,8 +3,13 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $manager = Join-Path $root 'bin/agensi-mcp.exe'
 if (-not (Test-Path $manager)) {
-    Write-Error 'Native Rust binary missing. Run scripts/build.ps1 first.'; exit 1
+    Write-Error 'Native executable missing. Download and extract the Windows release first.'; exit 1
 }
+$tempRoot = Join-Path $root '.tmp'
+[IO.Directory]::CreateDirectory($tempRoot) | Out-Null
+$env:TEMP = $tempRoot
+$env:TMP = $tempRoot
+$env:TMPDIR = $tempRoot
 $defaultList = Join-Path $root 'Proxy list.txt'
 function Invoke-Manager([string[]]$Arguments) {
     $output = & $manager @Arguments
