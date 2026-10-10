@@ -27,7 +27,8 @@ function checkLinks(folder) {
     if (entry.isDirectory()) { checkLinks(path); continue; }
     if (!entry.name.endsWith('.md')) continue;
     const text = readFileSync(path, 'utf8');
-    if (text.includes('https://agensi.io/creators/')) throw new Error('Creator directory is not distributable guidance.');
+    // This inspects document prose, not a URL trust/hostname boundary.
+    if (/agensi[.]io\/creators\//.test(text)) throw new Error('Creator directory is not distributable guidance.');
     for (const [, target] of text.matchAll(/\]\(([^)]+)\)/g)) {
       if (/^(https?:|#)/.test(target)) continue;
       const linked = resolve(dirname(path), target.split('#')[0]);
