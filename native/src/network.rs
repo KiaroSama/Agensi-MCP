@@ -18,6 +18,18 @@ impl std::ops::Deref for RoutedClient {
         &self.http
     }
 }
+pub fn effective_proxy_url(value: &str) -> Result<url::Url> {
+    let mut url = crate::config::validate_proxy(value)?;
+    let scheme = match url.scheme() {
+        "socks4" => "socks4a",
+        "socks5" => "socks5h",
+        other => other,
+    };
+    let scheme = scheme.to_string();
+    url.set_scheme(&scheme)
+        .map_err(|_| anyhow::anyhow!("Cannot enforce proxy-side destination DNS."))?;
+    Ok(url)
+}
 pub fn client(config: &Config) -> Result<RoutedClient> {
     if config.mode == Mode::Disconnected {
         bail!("Agensi is disconnected; select a route.");
@@ -33,14 +45,14 @@ pub fn client(config: &Config) -> Result<RoutedClient> {
             .iter()
             .find(|p| Some(&p.name) == config.selected.as_ref())
             .ok_or_else(|| anyhow::anyhow!("Selected proxy is missing; connection blocked."))?;
-        let url = crate::config::validate_proxy(&profile.url)?;
+        let url = effective_proxy_url(&profile.url)?;
         let proxy = if matches!(url.scheme(), "socks4" | "socks4a") && !url.username().is_empty() {
             let relay = Arc::new(socks4_userid::start(&url)?);
             let local = relay.proxy_url.clone();
             adapter = Some(relay);
             local
         } else {
-            profile.url.clone()
+            url.to_string()
         };
         builder = builder.proxy(
             reqwest::Proxy::all(&proxy)

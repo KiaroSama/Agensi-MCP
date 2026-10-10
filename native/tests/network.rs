@@ -344,9 +344,9 @@ async fn http_proxy_authentication_reaches_proxy_only_and_status_is_redacted() {
 #[tokio::test(flavor = "current_thread")]
 async fn socks_schemes_forward_real_http_and_preserve_dns_policy() {
     for (scheme, version, remote_dns) in [
-        ("socks4", 4, false),
+        ("socks4", 4, true),
         ("socks4a", 4, true),
-        ("socks5", 5, false),
+        ("socks5", 5, true),
         ("socks5h", 5, true),
     ] {
         bounded(async {

@@ -66,7 +66,14 @@ from its own ancestors; caller CWD and spaces do not change route/auth/log stora
 ## Routing
 
 HTTP/HTTPS/SOCKS4/SOCKS4a/SOCKS5/SOCKS5h. Ordinary4/5 use local destination DNS;4a/5h use proxy-side
-DNS. Proxy-host DNS can still be local. TLS certificates remain verified.
+DNS in stored profile names, but the application now normalizes both to SOCKS4a/SOCKS5h at runtime:
+destination DNS always occurs through the selected proxy. Stored host, port, credentials and profile
+selection remain unchanged. Proxy-host DNS can still be local. TLS certificates remain verified.
+
+Proxy-side resolution prevents local destination DNS, but the provider may use a resolver in another
+country or an anycast address. Matching proxy egress country and resolver country cannot be guaranteed
+by this application. It adds no timezone metadata/header; UTC log timestamps are not sent upstream.
+Browser login/checkout routing and browser timezone remain outside this bridge.
 
 No direct/alternate fallback or environment NO_PROXY bypass. Invalid/unreachable selected proxy blocks
 traffic. A route change invalidates old relay within the200ms watcher; reconnect clients. Unknown
@@ -76,6 +83,34 @@ Reqwest handles standard routes. A narrow native authenticated loopback adapter 
 user IDs that reqwest's upstream connector otherwise ignores. It always tunnels to the selected proxy,
 never the destination directly; owns bounded sessions and closes when dropped. SOCKS4 has no password
 or IPv6 destination. Browser OAuth/checkout routing is separate; this is not an OS-wide firewall.
+
+## Local HTTP endpoint
+
+Stdio remains available. To serve local MCP HTTP at the configured port (default1594):
+
+```bash
+./bin/agensi-mcp.exe http
+```
+
+Endpoint: `http://127.0.0.1:1594/mcp`. Change the saved port, then restart the listener:
+
+```bash
+./bin/agensi-mcp.exe http-port 2594
+```
+
+The `local_http_port` setting accepts1..65535. This is not the OAuth callback, upstream HTTPS443 or
+selected proxy port. Host/Origin must match the exact local listener; no external bind, arbitrary
+forwarding destination, wildcard CORS or redirects. The owner selected no local token: local processes
+are trusted and can use the saved Agensi session. Never expose or forward this port publicly.
+
+## Cache and state paths
+
+The executable derives the project root from its own installed location; no Desktop `env` entry is
+needed to choose its runtime paths. Saved OAuth session: `.state/auth/rust-session.json`; refresh lock
+alongside it. Proxy/settings: `config.local.json`; logs: `logs/`. No native runtime download cache is
+needed to run a built binary. Cargo's build/download cache is `.cache/cargo` only during builds, with
+build outputs in `target`; build scripts set those paths explicitly. These paths are independent of
+Claude Desktop's own application cache, which this project does not control.
 
 ## Proxy import and management
 
@@ -129,10 +164,28 @@ separate scope/approval. Submission preview itself transfers files externally.
 
 ## Operator guidance
 
-[Original GPLv3 operator package](packages/agensi-operator/README.md) includes search/selection,
-demand hypotheses, matched competitive validation, skill optimization, policies/privacy and safe tool
-workflows. Claude/Codex/Cursor native compatibility manifests; Antigravity has a separate root format.
-No plugin MCP/autostart/hooks/tool preapproval. File presence is not native loading evidence.
+The project root is the plugin root, matching the Revayat skill layout: `.claude-plugin/`,
+`.codex-plugin/`, `.cursor-plugin/` and [skills/agensi-operator](skills/agensi-operator/SKILL.md)
+are siblings. Root `plugin.json` is the minimal native Antigravity format; the other clients use
+same-name compatibility manifests. No duplicate nested package is needed. No plugin MCP/autostart,
+hooks or tool preapproval. File presence is not native loading evidence.
+
+Claude Code installation:
+
+```text
+/plugin install agensi-operator --marketplace KiaroSama/Agensi-MCP
+```
+
+Session-only local loading:
+
+```bash
+claude --plugin-dir .
+```
+
+Codex standalone discovery uses the original skill copied to the target project's `.agents/skills/agensi-operator`;
+Cursor uses `.cursor/skills/agensi-operator` or one supported compatible location. Antigravity native
+project plugins use `.agents/plugins/agensi-operator`, or standalone `.agents/skills/agensi-operator`.
+Do not create duplicate discovery copies. Native global installation is a separate approved action.
 
 [Paired-output experiment](docs/operator-evaluation.md): competent baseline also meets core criteria;
 no proven statistical effectiveness lift or real payment validation. Installs do not establish sales,

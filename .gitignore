@@ -28,7 +28,8 @@
 /.management.lock
 /config.local.json
 /Proxy list.txt
-/skills/
+/skills/*
+!/skills/agensi-operator/
 /plugins/
 .env
 .env.*

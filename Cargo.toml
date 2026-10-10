@@ -45,12 +45,21 @@ path = "native/tests/entry.rs"
 name = "socks4_userid"
 path = "native/tests/socks4_userid.rs"
 
+[[test]]
+name = "local_http"
+path = "native/tests/local_http.rs"
+
+[[test]]
+name = "settings"
+path = "native/tests/settings.rs"
+
 [dev-dependencies]
 rcgen = "=0.14.10"
 tokio-rustls = "=0.26.6"
-axum = "=0.8.9"
 
 [dependencies]
+axum = "=0.8.9"
+tokio-util = "=0.7.20"
 anyhow = "=1.0.104"
 async-trait = "=0.1.92"
 chrono = "=0.4.45"

@@ -10,7 +10,7 @@ Change a profile only when requested: `./bin/agensi-mcp.exe select "<saved-name>
 
 ## Routing
 
-Startup defaults disconnected. Selected proxy failure blocks traffic; no direct/alternate-profile fallback or environment NO_PROXY bypass. Route changes invalidate old connections. HTTP/HTTPS/SOCKS4/SOCKS5 are supported; SOCKS4a/5h select proxy-side destination DNS, while ordinary4/5 use local destination DNS. Proxy-host DNS can remain local. TLS validation stays enabled.
+Startup defaults disconnected. Selected proxy failure blocks traffic; no direct/alternate-profile fallback or environment NO_PROXY bypass. Route changes invalidate old connections. HTTP/HTTPS/SOCKS4/SOCKS5 are supported; All SOCKS profiles are normalized to SOCKS4a/5h at runtime for proxy-side destination DNS, without changing the saved server port/credentials. Resolver country still depends on the provider. Proxy-host DNS can remain local. TLS validation stays enabled.
 
 Browser authorization and checkout use the browser's own route; this bridge is not an OS-wide firewall. Own loopback OAuth coordination is a narrow exception, not permission for upstream bypass. Don't replay uncertain billable/upload operations after disconnect.
 
@@ -33,3 +33,5 @@ Inspect sanitized status and newest relevant operational log. Classify disconnec
 For unknown charged/submitted outcome, reconcile ownership/listing activity before another attempt. Retry read-only checks within bounded budgets; require the exact human/configuration step that evidence calls for, not secret values. Kill only task-owned temporary processes.
 
 Sources: connection-manager README and source; [Agensi MCP setup](https://agensi.io/docs/mcp-setup), [official Rust SDK](https://github.com/modelcontextprotocol/rust-sdk). Public source describes behavior, not a guarantee that every client or live service environment has been tested.
+
+Optional local MCP HTTP: native command `http` serves `http://127.0.0.1:1594/mcp` by default; `http-port <1..65535>` saves a different port. This is separate from OAuth callback and upstream443. Owner chose trusted local processes without a token; never expose the listener externally. No application timezone header is added. Runtime state is resolved from binary location under project `.state/auth`, not Desktop CWD; Cargo cache is build-only `.cache/cargo`.

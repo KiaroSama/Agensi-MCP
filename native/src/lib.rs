@@ -20,4 +20,6 @@ pub fn project_root() -> anyhow::Result<std::path::PathBuf> {
     ))
 }
 
+pub mod local_http;
+pub mod settings;
 pub mod socks4_userid;

@@ -16,17 +16,17 @@ try {
         if ($text -match $secret) { throw "Sensitive-pattern match: $name; value omitted." }
         if ($name -match '\.(rs|ps1)$' -and ($text -split "`n").Count -gt 800) { throw "Source line ceiling exceeded: $name" }
     }
-    $bundle = Join-Path $root 'packages/agensi-operator'
+    $bundle = $root
     $skill = Join-Path $bundle 'skills/agensi-operator'
     $main = [IO.File]::ReadAllText((Join-Path $skill 'SKILL.md'), $utf8).Replace("`r`n", "`n")
     if (-not $main.StartsWith("---`n") -or -not $main.Contains("name: agensi-operator`n")) { throw 'Invalid skill frontmatter.' }
-    $alternative = Join-Path $root 'packages/agensi-operator-antigravity/skills/agensi-operator'
+    $native = [IO.File]::ReadAllText((Join-Path $root 'plugin.json'), $utf8) | ConvertFrom-Json
+    if ($native.name -ne 'agensi-operator' -or @($native.PSObject.Properties.Name).Count -ne 2) { throw 'Invalid Antigravity root manifest.' }
     $resources = @(Get-ChildItem $skill -Recurse -File)
     foreach ($resource in $resources) {
         $relative = [IO.Path]::GetRelativePath($skill, $resource.FullName)
         $original = [IO.File]::ReadAllText($resource.FullName, $utf8)
-        $other = [IO.File]::ReadAllText((Join-Path $alternative $relative), $utf8)
-        if ($original -cne $other) { throw 'Client skill content mismatch.' }
+        if ($original -match 'agensi[.]io/creators/') { throw 'Creator directory is not reusable operating guidance.' }
         foreach ($match in [regex]::Matches($original, '\]\(([^)]+)\)')) {
             $target = $match.Groups[1].Value
             if ($target -match '^(https?:|#)') { continue }

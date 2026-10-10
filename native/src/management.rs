@@ -78,6 +78,7 @@ pub fn command(root: &Path, args: &[String], stdin: &str) -> Result<Value> {
             config.mode = Mode::Proxy;
             config.selected = Some(name.to_owned());
         }
+        "http-port" => crate::settings::set_http_port(&mut config, name)?,
         "direct" => config.mode = Mode::Direct,
         "disconnect" => config.mode = Mode::Disconnected,
         _ => bail!("Use status, add, import, select, direct, disconnect or save-skill."),

@@ -23,6 +23,7 @@ async fn main() {
     let result: anyhow::Result<()> = async {
         match action {
             "bridge" => bridge::run(&root).await,
+            "http" => agensi_mcp::local_http::run(&root).await,
             "signin" | "--signin" => {
                 let cfg = config::load(&root)?;
                 auth::signin(&root, network::client(&cfg)?).await
