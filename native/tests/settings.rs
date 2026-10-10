@@ -11,7 +11,10 @@ fn local_http_port_defaults_and_atomic_update_preserve_route() {
         assert!(settings::set_http_port(&mut cfg, bad).is_err());
     }
     assert_eq!(settings::http_port(&cfg).unwrap(), 1594);
-    let root = tempfile::tempdir().unwrap();
+    let fixture_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".tmp");
+    std::fs::create_dir_all(&fixture_root).unwrap();
+    let fixture_root = fixture_root.canonicalize().unwrap();
+    let root = tempfile::tempdir_in(fixture_root).unwrap();
     config::save(root.path(), &cfg).unwrap();
     management::command(root.path(), &["http-port".into(), "2594".into()], "").unwrap();
     let saved = config::load(root.path()).unwrap();

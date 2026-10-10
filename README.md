@@ -23,18 +23,82 @@ proxies, manual OAuth and original multi-client operating guidance. No Node runt
 Agensi's server stays at https://mcp.agensi.io/mcp; this independent project is not an official Agensi
 product, marketplace listing or account authorization.
 
-## Start
+## Installation
 
-Requirements: existing Rust1.99+ for building, PowerShell7 for the Windows launcher. Build dependencies,
-Cargo cache and target output stay under this project. No global runtime is installed automatically.
+There are two independent installs: the **Rust MCP connection manager** and the **instruction plugin**.
+Installing the plugin does not build/start the server, register an MCP connection or log you into Agensi.
+The plugin alone needs no Rust/Node dependencies. Never copy private configuration, OAuth state,
+operational logs or build caches into a plugin installation.
+
+### 1. Get the project
+
+Requires Git. Clone to a new folder (do not overwrite an existing installation):
+
+```bash
+git clone https://github.com/KiaroSama/Agensi-MCP.git
+```
+
+```bash
+cd Agensi-MCP
+```
+
+### 2. Build the MCP manager — Windows
+
+Requires Rust1.99+ and its native compiler prerequisites, plus PowerShell7. Use an existing toolchain;
+if missing, follow [official Rust installation](https://www.rust-lang.org/tools/install) and
+[PowerShell installation](https://learn.microsoft.com/powershell/scripting/install/installing-powershell).
+No global runtime is installed automatically by this project.
 
 ```bash
 pwsh -NoProfile -File scripts/build.ps1
 ```
 
+Output: `bin/agensi-mcp.exe`.
+
 ```bash
 pwsh -NoProfile -File run.ps1
 ```
+
+### 3. Build the MCP manager — macOS or Linux
+
+Requires Rust1.99+ with platform compiler prerequisites and Bash. No PowerShell is required for these
+build/launch commands; the Rust core is the same on all platforms.
+
+```bash
+bash scripts/build.sh
+```
+
+Output: `bin/agensi-mcp`.
+
+```bash
+bash run.sh status
+```
+
+Import a private proxy list (example filename, not provided credentials):
+
+```bash
+bash run.sh import /absolute/path/to/my-private-proxies.txt
+```
+
+```bash
+bash run.sh select "Example Proxy"
+```
+
+```bash
+bash run.sh signin
+```
+
+Keep the terminal open during browser approval. Use `bash run.sh bridge` for stdio, or `bash run.sh http`
+for the local HTTP listener. Client stdio configuration uses an absolute path to `bin/agensi-mcp`
+and `args: ["bridge"]` on Unix, rather than the Windows `.exe` example below.
+
+### 4. Connect and verify
+
+Build/download cache: project `.cache/cargo`; temporary build output: `target/`. Runtime state and
+cache behavior are explained in [Cache and state paths](#cache-and-state-paths). Do not remove the
+installed `bin/` executable, route settings or saved session when clearing build artifacts.
+
+The Windows menu provides these setup actions:
 
 1. Import proxies with option1 (default local list beside launcher).
 2. Select a named profile with option2. Initial mode is disconnected; option4 explicitly enables direct.
@@ -185,7 +249,93 @@ claude --plugin-dir .
 Codex standalone discovery uses the original skill copied to the target project's `.agents/skills/agensi-operator`;
 Cursor uses `.cursor/skills/agensi-operator` or one supported compatible location. Antigravity native
 project plugins use `.agents/plugins/agensi-operator`, or standalone `.agents/skills/agensi-operator`.
-Do not create duplicate discovery copies. Native global installation is a separate approved action.
+Do not create duplicate discovery copies. Native global installation is a separate approved action. Full per-client steps are below.
+
+### Install the Claude Code plugin
+
+In an interactive Claude Code session:
+
+```text
+/plugin install agensi-operator --marketplace KiaroSama/Agensi-MCP
+```
+
+Start a new session and invoke `/agensi-operator:agensi-operator`. For a local session-only test, run
+`claude --plugin-dir .` from the cloned repository instead. Validate packaging without installation:
+
+```bash
+claude plugin validate .claude-plugin/plugin.json
+```
+
+### Install the Codex plugin
+
+The root `.codex-plugin/plugin.json` is the native compatibility manifest. To install through a local
+repo marketplace, first copy only these original plugin files into a target project's
+`plugins/agensi-operator/`: `.codex-plugin/plugin.json`, `skills/agensi-operator/`, `LICENSE` and
+`plugin.json`. Preserve existing target files; do not recursively copy this whole MCP installation.
+
+Add this entry to the target project's `.agents/plugins/marketplace.json` (merge `plugins`, do not
+replace an existing catalog):
+
+```json
+{
+  "name": "agensi-local",
+  "plugins": [
+    {
+      "name": "agensi-operator",
+      "source": { "source": "local", "path": "./plugins/agensi-operator" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+The source path resolves from the **target project root**, not from `.agents/plugins/`. Restart the
+supported Codex desktop surface and install from this local marketplace. Codex CLI provides `/plugins`
+for configured catalogs; availability depends on the client/version. Codex IDE does not support native
+plugins: copy only `skills/agensi-operator` to target `.agents/skills/agensi-operator` as a standalone
+skill instead. Verify discovery in a new session before claiming installation.
+
+### Install the Cursor plugin
+
+1. Create `~/.cursor/plugins/local/agensi-operator/` on the machine running Cursor.
+2. Copy only `.cursor-plugin/plugin.json`, `skills/agensi-operator/` and `LICENSE` into it, keeping their
+   relative structure. Do not copy the Antigravity root `plugin.json` into this Cursor-native package.
+3. Restart Cursor or use **Developer: Reload Window**.
+4. Open **Customize** and confirm `agensi-operator` and its skill are present; invoke `/agensi-operator`.
+
+On Teams/Enterprise, local plugin imports can be disabled by the administrator. A marketplace plugin
+with the same name takes precedence. A symlink to a repository outside the local-plugin directory is
+not a supported substitute. Standalone workspace alternative: target `.cursor/skills/agensi-operator`.
+This project has not been submitted to Cursor's public marketplace.
+
+### Install the Antigravity plugin
+
+From the cloned repository, on a machine with the Antigravity CLI:
+
+```bash
+agy plugin install .
+```
+
+```bash
+agy plugin list
+```
+
+For workspace-only manual installation, place only `plugin.json`, `skills/agensi-operator/` and
+`LICENSE` under the target workspace `.agents/plugins/agensi-operator/`. Antigravity2.0/IDE uses
+that workspace path; global manual installation uses `~/.gemini/config/plugins/`. CLI-managed assets
+use its own documented configuration location. Do not mix these scopes or overwrite another installed
+plugin silently. Open a new supported session and verify the skill appears.
+
+### Installation boundaries
+
+The shared original instruction payload is the same for all four clients, but native manifests and
+installation methods differ. Root `plugin.json` is Antigravity-native, not a claimed universal Agent
+Plugins manifest. No installer here executes copied scripts or automatically configures service access.
+Claude manifest validation has been run; actual four-client installation/loading remains unverified.
+Sources checked2026-10-11: [Claude plugins](https://code.claude.com/docs/en/plugins),
+[Codex packaging](https://developers.openai.com/plugins/build/plugins),
+[Cursor local plugins](https://cursor.com/docs/plugins), [Antigravity plugins](https://antigravity.google/docs/plugins).
 
 [Paired-output experiment](docs/operator-evaluation.md): competent baseline also meets core criteria;
 no proven statistical effectiveness lift or real payment validation. Installs do not establish sales,
