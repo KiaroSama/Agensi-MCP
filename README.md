@@ -30,45 +30,74 @@ Installing the plugin does not build/start the server, register an MCP connectio
 The plugin alone needs no Rust/Node dependencies. Never copy private configuration, OAuth state,
 operational logs or build caches into a plugin installation.
 
-### 1. Get the project
+### 1. Download a ready-to-run build
 
-Requires Git. Clone to a new folder (do not overwrite an existing installation):
+Open [Releases](https://github.com/KiaroSama/Agensi-MCP/releases/latest). Download **one** archive for
+your machine and its matching `.sha256` file. No Rust, Cargo, Node, Git or local compilation is needed.
+
+| Machine | Download |
+|---|---|
+| Windows x64 | `agensi-mcp-windows-x64.zip` |
+| Linux x64 (Ubuntu24.04/glibc-compatible) | `agensi-mcp-linux-x64.tar.gz` |
+| macOS Apple Silicon | `agensi-mcp-macos-arm64.tar.gz` |
+| macOS Intel | `agensi-mcp-macos-x64.tar.gz` |
+
+Each archive contains the compiled executable in `bin/`, launchers, original plugin, GPL license and
+corresponding source. `BUILD-INFO.txt` records its source commit. Extract into a **new folder** and keep
+the directory layout; don't move only the executable. An upgrade should not overwrite existing proxy,
+authentication or operational files. Old versions remain available as explicit rollback downloads.
+
+Verify SHA256 before running. On Windows PowerShell, from your downloads folder:
 
 ```bash
-git clone https://github.com/KiaroSama/Agensi-MCP.git
+pwsh -NoProfile -Command "Get-FileHash ./agensi-mcp-windows-x64.zip -Algorithm SHA256"
 ```
+
+Compare the displayed hash with the matching downloaded `.sha256` file. On Linux:
 
 ```bash
-cd Agensi-MCP
+sha256sum -c agensi-mcp-linux-x64.tar.gz.sha256
 ```
 
-### 2. Build the MCP manager — Windows
-
-Requires Rust1.99+ and its native compiler prerequisites, plus PowerShell7. Use an existing toolchain;
-if missing, follow [official Rust installation](https://www.rust-lang.org/tools/install) and
-[PowerShell installation](https://learn.microsoft.com/powershell/scripting/install/installing-powershell).
-No global runtime is installed automatically by this project.
+On macOS Apple Silicon (use the x64 filename on Intel):
 
 ```bash
-pwsh -NoProfile -File scripts/build.ps1
+shasum -a 256 -c agensi-mcp-macos-arm64.tar.gz.sha256
 ```
 
-Output: `bin/agensi-mcp.exe`.
+Alternatively, open the latest successful [CI run](https://github.com/KiaroSama/Agensi-MCP/actions/workflows/ci.yml)
+and download its platform artifact while it is retained (30days, GitHub sign-in may be required).
+The artifact ZIP contains the platform archive plus checksum; extract the outer artifact first, then
+the platform archive. Releases provide durable public downloads without an Actions account.
+
+### 2. Run on Windows
+
+Open the extracted folder. PowerShell7 is needed only for the menu; the native executable can run
+commands directly without PowerShell. No development toolchain is needed.
 
 ```bash
 pwsh -NoProfile -File run.ps1
 ```
 
-### 3. Build the MCP manager — macOS or Linux
-
-Requires Rust1.99+ with platform compiler prerequisites and Bash. No PowerShell is required for these
-build/launch commands; the Rust core is the same on all platforms.
+Or inspect the native executable directly:
 
 ```bash
-bash scripts/build.sh
+./bin/agensi-mcp.exe status
 ```
 
-Output: `bin/agensi-mcp`.
+These builds are currently unsigned. Windows or macOS may require an explicit security approval;
+check the download source and checksum, and follow local policy rather than disabling protections.
+
+### 3. Run on macOS or Linux
+
+Extract the archive (Apple Silicon example; choose your platform filename):
+
+```bash
+tar -xzf agensi-mcp-macos-arm64.tar.gz
+```
+
+Open its extracted directory; Unix archive permissions preserve the executable bit. Bash is needed
+for `run.sh`, not for running `bin/agensi-mcp` directly. No PowerShell or compiler is required.
 
 ```bash
 bash run.sh status
@@ -94,9 +123,9 @@ and `args: ["bridge"]` on Unix, rather than the Windows `.exe` example below.
 
 ### 4. Connect and verify
 
-Build/download cache: project `.cache/cargo`; temporary build output: `target/`. Runtime state and
-cache behavior are explained in [Cache and state paths](#cache-and-state-paths). Do not remove the
-installed `bin/` executable, route settings or saved session when clearing build artifacts.
+Downloaded binaries create no Cargo build cache. Runtime state and cache behavior are explained in
+[Cache and state paths](#cache-and-state-paths). Preserve the installed `bin/` executable, route
+settings and saved session when clearing optional development artifacts.
 
 The Windows menu provides these setup actions:
 
@@ -348,6 +377,25 @@ New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>.log`. Entries
 no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses stderr. Vendor debug
 logging stays disabled because third-party protocol logs may expose credential bytes. Retention manual;
 share reviewed sanitized excerpts only. Preserve real operational logs during cleanup.
+
+## Optional source build (developers only)
+
+Ready-made downloads are the normal installation path. To modify the Rust source, clone this repository
+and use an existing Rust1.99+ toolchain with native compiler prerequisites. Building is optional:
+
+```bash
+pwsh -NoProfile -File scripts/build.ps1
+```
+
+On macOS/Linux:
+
+```bash
+bash scripts/build.sh
+```
+
+Build scripts keep Cargo downloads in `.cache/cargo` and outputs in `target/`. After preserving the
+installed executable in `bin/`, those two generated folders can be removed to reclaim disk space.
+Do not remove `.state/auth`, `config.local.json`, your private proxy list or operational logs.
 
 ## Tests and CI
 
