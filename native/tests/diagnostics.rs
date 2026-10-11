@@ -66,3 +66,27 @@ fn dns_observations_do_not_convert_service_conclusion_into_leak_proof() {
     assert!(resolver_summary(&json!({})).is_err());
     assert!(resolver_summary(&json!([{"type":"dns","ip":"bad"}])).is_err());
 }
+
+#[test]
+fn captured_route_and_change_detection_cannot_accept_an_intervening_selection() {
+    use agensi_mcp::{config, diagnostics::route_unchanged};
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".tmp");
+    std::fs::create_dir_all(&base).unwrap();
+    let dir = tempfile::tempdir_in(base.canonicalize().unwrap()).unwrap();
+    let a = json!({"schema":1,"mode":"proxy","selected":"A","profiles":[
+        {"name":"A","url":"socks5://127.0.0.1:1594"},{"name":"B","url":"socks5://127.0.0.1:2594"}]});
+    let snapshot = serde_json::to_vec(&a).unwrap();
+    std::fs::write(dir.path().join("config.local.json"), &snapshot).unwrap();
+    let route = config::from_bytes(&snapshot).unwrap();
+    assert_eq!(route.selected.as_deref(), Some("A"));
+    assert!(route_unchanged(dir.path(), &snapshot).is_ok());
+    let mut b = a;
+    b["selected"] = json!("B");
+    std::fs::write(
+        dir.path().join("config.local.json"),
+        serde_json::to_vec(&b).unwrap(),
+    )
+    .unwrap();
+    assert!(route_unchanged(dir.path(), &snapshot).is_err());
+    assert_eq!(route.selected.as_deref(), Some("A"));
+}

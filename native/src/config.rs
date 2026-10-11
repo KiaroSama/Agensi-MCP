@@ -170,7 +170,12 @@ pub fn load(root: &Path) -> Result<Config> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(initial()),
         Err(_) => bail!("Cannot read route settings."),
     };
-    let text = std::str::from_utf8(&bytes)
+    from_bytes(&bytes)
+}
+
+/// Validate settings from one captured read, so route and change detection share an identity.
+pub fn from_bytes(bytes: &[u8]) -> Result<Config> {
+    let text = std::str::from_utf8(bytes)
         .map_err(|_| anyhow!("Route settings are not valid JSON; connection blocked."))?;
     let mut value: Value = serde_json::from_str(text)
         .map_err(|_| anyhow!("Route settings are not valid JSON; connection blocked."))?;

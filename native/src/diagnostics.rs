@@ -91,7 +91,7 @@ pub fn resolver_summary(value: &Value) -> Result<Value> {
     )
 }
 
-fn route_unchanged(root: &Path, snapshot: &[u8]) -> Result<()> {
+pub fn route_unchanged(root: &Path, snapshot: &[u8]) -> Result<()> {
     let current = std::fs::read(root.join("config.local.json"))
         .map_err(|_| anyhow!("Cannot verify selected route."))?;
     if current != snapshot {
@@ -131,11 +131,13 @@ pub async fn network_check(root: &Path) -> Result<Value> {
         .map_err(|_| anyhow!("Network diagnostic exceeded 90 seconds; no fallback."))?
 }
 async fn check(root: &Path) -> Result<Value> {
-    let cfg = config::load(root)?;
+    config::reject_linked_ancestors(&root.join("config.local.json"))?;
+    let snapshot = std::fs::read(root.join("config.local.json"))
+        .map_err(|_| anyhow!("Cannot read selected route."))?;
+    let cfg = config::from_bytes(&snapshot)?;
     if cfg.mode != config::Mode::Proxy {
         bail!("Network diagnostic requires an explicitly selected proxy.");
     }
-    let snapshot = std::fs::read(root.join("config.local.json"))?;
     let route = network::client(&cfg)?;
     route_unchanged(root, &snapshot)?;
     let egress = address_summary(&get_json(&route, "https://ipinfo.io/json").await?)?;
