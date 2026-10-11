@@ -79,7 +79,8 @@ function Publish-RegistrationFile {
     Assert-RegistrationPath $Path
     if ([IO.File]::Exists($Path)) {
         # Replace preserves the destination's security metadata on Windows.
-        [IO.File]::Replace($Stage, $Path, $null, $false)
+        # A typed .NET null avoids PowerShell converting a bare $null to an empty path.
+        [IO.File]::Replace($Stage, $Path, [NullString]::Value, $false)
     } else { [IO.File]::Move($Stage, $Path, $false) }
 }
 function Invoke-RegistrationTransaction {
@@ -87,6 +88,7 @@ function Invoke-RegistrationTransaction {
     $locks = [Collections.Generic.List[IDisposable]]::new()
     $published = [Collections.Generic.List[object]]::new()
     $keepBackups = $false
+    $phase = 'locking'
     foreach ($change in $Changes) {
         if ($null -eq $change.NewBytes) { $change.NewBytes = $change.Bytes }
     }
@@ -98,6 +100,7 @@ function Invoke-RegistrationTransaction {
             Assert-RegistrationPath $lockPath
             $locks.Add([IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None))
         }
+        $phase = 'staging'
         foreach ($change in $Changes) {
             if (-not (Test-RegistrationBytesEqual (Read-RegistrationBytes $change.Path) $change.Bytes)) { throw 'Registration settings changed concurrently; nothing published.' }
             if (Test-RegistrationBytesEqual $change.NewBytes $change.Bytes) { continue }
@@ -109,17 +112,23 @@ function Invoke-RegistrationTransaction {
                 Write-RegistrationStage $change.Backup $change.Bytes
             }
         }
+        $phase = 'publishing'
         foreach ($change in $Changes) {
             if (-not (Test-RegistrationBytesEqual (Read-RegistrationBytes $change.Path) $change.Bytes)) { throw 'Registration settings changed concurrently during publication.' }
             if (Test-RegistrationBytesEqual $change.NewBytes $change.Bytes) { continue }
             Publish-RegistrationFile $change.Stage $change.Path
             $published.Add($change)
         }
+        $phase = 'verifying'
         foreach ($change in $Changes) {
             if (-not (Test-RegistrationBytesEqual (Read-RegistrationBytes $change.Path) $change.NewBytes)) { throw 'Registration read-back verification failed.' }
         }
         Write-RegistrationLog INFO 'All requested registration targets were saved and verified.'
     } catch {
+        # Report bounded structural diagnostics, never exception payloads or config contents.
+        $failureType = $_.Exception.GetBaseException().GetType().Name
+        $failureLine = $_.InvocationInfo.ScriptLineNumber
+        Write-RegistrationLog ERROR ('Registration failed during ' + $phase + ' (' + $failureType + ', script line ' + $failureLine + '); payload omitted.')
         Write-RegistrationLog WARNING 'Registration did not complete; restoring only unchanged files written by this operation.'
         for ($index = $published.Count - 1; $index -ge 0; $index--) {
             $change = $published[$index]

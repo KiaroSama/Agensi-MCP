@@ -84,9 +84,8 @@ mod tests {
             "Content-Length: 0\r\ncontent-length: 0\r\n",
             " folded: value\r\n",
         ] {
-            let request = format!(
-                "GET /oauth/callback HTTP/1.1\r\nHost: 127.0.0.1:1234\r\n{extra}\r\n"
-            );
+            let request =
+                format!("GET /oauth/callback HTTP/1.1\r\nHost: 127.0.0.1:1234\r\n{extra}\r\n");
             assert!(validate(&request, 1234).is_err());
         }
         assert!(

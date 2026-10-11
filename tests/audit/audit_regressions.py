@@ -232,8 +232,15 @@ def filesystem_cases():
             args = {'config': ['status'], 'session': ['doctor'], 'import': ['import', str(path)],
                     'skill-input': ['save-skill', 'fixture', str(path)]}[kind]
             result = p.run(*args, timeout=0.9)
-            record('fifo-' + kind + '-bounded', not result['timeout'] and result['exit'] != 0,
-                   {'timeout': result['timeout'], 'bound_seconds': 0.9}, 'F05')
+            # Doctor reports an unreadable session as diagnostic JSON, not a CLI failure.
+            refused = result['exit'] != 0
+            if kind == 'session':
+                session = (result.get('json') or {}).get('session', {})
+                refused = (result['exit'] == 0 and session.get('readable') is False
+                           and session.get('usable') == 'unknown')
+            record('fifo-' + kind + '-bounded', not result['timeout'] and refused,
+                   {'timeout': result['timeout'], 'bound_seconds': 0.9,
+                    'refused': refused}, 'F05')
     with Project() as p:
         (p.root / 'logs').write_text('synthetic obstruction')
         result = p.run('status')
@@ -388,7 +395,7 @@ def http_cases():
         except subprocess.TimeoutExpired:
             pass
         record('local-http-idle-disconnect', process.process.poll() is not None, {'exit': process.process.poll()})
-    # A probe has no route watcher: pause initialize, disconnect, then observe later calls.
+    # Regression: pause initialize, disconnect, and ensure no later probe calls begin.
     with Project() as p:
         _, success = p.signin()
         p.fixture.pause_path = '/mcp'
@@ -461,6 +468,8 @@ def main():
         # Exception payloads could include a fixture URL/state; retain only its class.
         LOG.error('Harness aborted with %s; payload omitted.', type(error).__name__)
         record('harness-completion', False, {'exception_type': type(error).__name__})
+    if args.phase == 'all' and len(RESULTS) != 98:
+        record('complete-inventory', False, {'expected': 98, 'observed': len(RESULTS)})
     report = {'started_utc': started, 'binary_sha256': hashlib.sha256((SOURCE / 'bin/agensi-mcp').read_bytes()).hexdigest(),
               'phase': args.phase, 'platform': 'Linux', 'synthetic_loopback_only': True,
               'cases': RESULTS, 'passed': sum(r['status'] == 'PASS' for r in RESULTS),
