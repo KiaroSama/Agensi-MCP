@@ -34,3 +34,11 @@
 /plugins/
 .env
 .env.*
+
+# Hook Maker: local/private files (auto-managed)
+/.env
+/.env.*
+!/.env.example
+!/.env.sample
+!/.env.template
+!/.env.dist
