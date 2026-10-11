@@ -22,14 +22,26 @@ pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(anyhow!("Cannot inspect local state file.")),
     };
-    ensure!(meta.len() <= MAX_JSON_BYTES as u64, "Local state exceeds 1 MiB limit.");
+    ensure!(
+        meta.len() <= MAX_JSON_BYTES as u64,
+        "Local state exceeds 1 MiB limit."
+    );
     let file = fs::File::open(path).map_err(|_| anyhow!("Cannot open local state file."))?;
-    let meta = file.metadata().map_err(|_| anyhow!("Cannot inspect opened state file."))?;
-    ensure!(meta.is_file() && meta.len() <= MAX_JSON_BYTES as u64, "Local state file refused.");
+    let meta = file
+        .metadata()
+        .map_err(|_| anyhow!("Cannot inspect opened state file."))?;
+    ensure!(
+        meta.is_file() && meta.len() <= MAX_JSON_BYTES as u64,
+        "Local state file refused."
+    );
     let mut bytes = Vec::new();
-    file.take(MAX_JSON_BYTES as u64 + 1).read_to_end(&mut bytes)
+    file.take(MAX_JSON_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
         .map_err(|_| anyhow!("Cannot read local state file."))?;
-    ensure!(bytes.len() <= MAX_JSON_BYTES, "Local state exceeds 1 MiB limit.");
+    ensure!(
+        bytes.len() <= MAX_JSON_BYTES,
+        "Local state exceeds 1 MiB limit."
+    );
     Ok(Some(bytes))
 }
 

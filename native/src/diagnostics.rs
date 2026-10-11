@@ -92,8 +92,8 @@ pub fn resolver_summary(value: &Value) -> Result<Value> {
 }
 
 pub fn route_unchanged(root: &Path, snapshot: &[u8]) -> Result<()> {
-    let current = crate::storage::snapshot(root)
-        .map_err(|_| anyhow!("Cannot verify selected route."))?;
+    let current =
+        crate::storage::snapshot(root).map_err(|_| anyhow!("Cannot verify selected route."))?;
     if current != snapshot {
         bail!("Route changed; diagnostic stopped without fallback.");
     }
@@ -132,8 +132,8 @@ pub async fn network_check(root: &Path) -> Result<Value> {
 }
 async fn check(root: &Path) -> Result<Value> {
     config::reject_linked_ancestors(&root.join("config.local.json"))?;
-    let snapshot = crate::storage::snapshot(root)
-        .map_err(|_| anyhow!("Cannot read selected route."))?;
+    let snapshot =
+        crate::storage::snapshot(root).map_err(|_| anyhow!("Cannot read selected route."))?;
     let cfg = config::from_bytes(&snapshot)?;
     if cfg.mode != config::Mode::Proxy {
         bail!("Network diagnostic requires an explicitly selected proxy.");

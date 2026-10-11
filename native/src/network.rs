@@ -79,31 +79,36 @@ impl OAuthHttpClient for OAuthHttp {
                 return Err(std::io::Error::other("Route changed; reconnect.").into());
             }
             watch_route(&self.settings, &self.snapshot, async {
-            let (parts, body) = input.request.into_parts();
-            let response = self
-                .client
-                .request(parts.method, parts.uri.to_string())
-                .headers(parts.headers)
-                .body(body)
-                .timeout(input.timeout.unwrap_or(Duration::from_secs(20)))
-                .send()
-                .await?;
-            let status = response.status();
-            let headers = response.headers().clone();
-            let mut bytes = Vec::new();
-            let mut stream = response.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk?;
-                if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-                    return Err(std::io::Error::other("OAuth response exceeds limit.").into());
+                let (parts, body) = input.request.into_parts();
+                let response = self
+                    .client
+                    .request(parts.method, parts.uri.to_string())
+                    .headers(parts.headers)
+                    .body(body)
+                    .timeout(input.timeout.unwrap_or(Duration::from_secs(20)))
+                    .send()
+                    .await?;
+                let status = response.status();
+                let headers = response.headers().clone();
+                let mut bytes = Vec::new();
+                let mut stream = response.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+                        return Err(std::io::Error::other("OAuth response exceeds limit.").into());
+                    }
+                    bytes.extend_from_slice(&chunk);
                 }
-                bytes.extend_from_slice(&chunk);
-            }
-            let mut output = http::Response::new(bytes);
-            *output.status_mut() = status;
-            *output.headers_mut() = headers;
-            Ok(output)
-            }).await.map_err(|_| std::io::Error::other("OAuth operation failed or route changed; values omitted.").into())
+                let mut output = http::Response::new(bytes);
+                *output.status_mut() = status;
+                *output.headers_mut() = headers;
+                Ok(output)
+            })
+            .await
+            .map_err(|_| {
+                std::io::Error::other("OAuth operation failed or route changed; values omitted.")
+                    .into()
+            })
         })
     }
 }
@@ -114,7 +119,10 @@ pub async fn watch_route<T>(
     snapshot: &[u8],
     future: impl std::future::Future<Output = Result<T>>,
 ) -> Result<T> {
-    anyhow::ensure!(crate::storage::matches(settings, snapshot), "Route changed; reconnect.");
+    anyhow::ensure!(
+        crate::storage::matches(settings, snapshot),
+        "Route changed; reconnect."
+    );
     tokio::pin!(future);
     let mut interval = tokio::time::interval(Duration::from_millis(200));
     loop {

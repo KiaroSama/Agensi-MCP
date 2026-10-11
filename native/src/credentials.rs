@@ -136,7 +136,8 @@ impl Drop for Lock {
 #[async_trait]
 impl CredentialStore for FileCredentials {
     async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
-        let Some(bytes) = crate::storage::read_optional(&self.path).map_err(|_| store_error())? else {
+        let Some(bytes) = crate::storage::read_optional(&self.path).map_err(|_| store_error())?
+        else {
             return Ok(None);
         };
         serde_json::from_slice(&bytes)

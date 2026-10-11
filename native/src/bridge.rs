@@ -75,36 +75,37 @@ pub async fn probe(root: &Path) -> Result<serde_json::Value> {
             .reinit_on_expired_session(false),
     );
     network::watch_route(&root.join("config.local.json"), &snapshot, async {
-    let service = tokio::time::timeout(
-        Duration::from_secs(20),
-        ClientConfig::default().serve(transport),
-    )
+        let service = tokio::time::timeout(
+            Duration::from_secs(20),
+            ClientConfig::default().serve(transport),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Discovery timed out."))?
+        .map_err(|_| anyhow::anyhow!("Discovery failed."))?;
+        let tools = tokio::time::timeout(
+            Duration::from_secs(15),
+            service.list_tools(Default::default()),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Tool listing timed out."))?
+        .map_err(|_| anyhow::anyhow!("Tool listing failed."))?;
+        let count = tools.tools.len();
+        let credit = tokio::time::timeout(
+            Duration::from_secs(15),
+            service.call_tool(rmcp::model::CallToolRequestParams::new("my_credits")),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Account read timed out."))?
+        .map_err(|_| anyhow::anyhow!("Account read failed."))?;
+        let account = credit.is_error != Some(true);
+        let _ = tokio::time::timeout(Duration::from_secs(5), service.cancel()).await;
+        if !account {
+            bail!("Account service returned an error; authentication not claimed.");
+        }
+        if count == 0 {
+            bail!("Upstream returned no tools.");
+        }
+        Ok(serde_json::json!({"connected":true,"tools":count,"account_read":account}))
+    })
     .await
-    .map_err(|_| anyhow::anyhow!("Discovery timed out."))?
-    .map_err(|_| anyhow::anyhow!("Discovery failed."))?;
-    let tools = tokio::time::timeout(
-        Duration::from_secs(15),
-        service.list_tools(Default::default()),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Tool listing timed out."))?
-    .map_err(|_| anyhow::anyhow!("Tool listing failed."))?;
-    let count = tools.tools.len();
-    let credit = tokio::time::timeout(
-        Duration::from_secs(15),
-        service.call_tool(rmcp::model::CallToolRequestParams::new("my_credits")),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Account read timed out."))?
-    .map_err(|_| anyhow::anyhow!("Account read failed."))?;
-    let account = credit.is_error != Some(true);
-    let _ = tokio::time::timeout(Duration::from_secs(5), service.cancel()).await;
-    if !account {
-        bail!("Account service returned an error; authentication not claimed.");
-    }
-    if count == 0 {
-        bail!("Upstream returned no tools.");
-    }
-    Ok(serde_json::json!({"connected":true,"tools":count,"account_read":account}))
-    }).await
 }

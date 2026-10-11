@@ -125,7 +125,10 @@ fn unquote_path(path: &Path) -> PathBuf {
 pub fn import(root: &Path, file: &Path) -> Result<Value> {
     let read = || -> Result<String> {
         let path = unquote_path(file);
-        ensure!(std::fs::metadata(&path)?.is_file(), "Proxy input must be a regular file.");
+        ensure!(
+            std::fs::metadata(&path)?.is_file(),
+            "Proxy input must be a regular file."
+        );
         let mut file = File::open(path)?;
         ensure!(
             file.metadata()?.is_file() && file.metadata()?.len() <= 1024 * 1024,

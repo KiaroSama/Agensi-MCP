@@ -85,9 +85,7 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
             "Unsupported MCP HTTP method.",
         );
     }
-    if !crate::storage::matches(&state.settings, &state.snapshot)
-        || state.cancel.is_cancelled()
-    {
+    if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
         return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
     }
     let permit = match state.requests.clone().try_acquire_owned() {
@@ -183,11 +181,15 @@ pub async fn run(root: &std::path::Path) -> Result<()> {
     let config = config::from_bytes(&snapshot)?;
     let port = settings::http_port(&config)?;
     let route = network::client(&config)?;
-    let manager: AuthorizationManager = auth::authenticated(root, route.clone(), snapshot.clone()).await?;
+    let manager: AuthorizationManager =
+        auth::authenticated(root, route.clone(), snapshot.clone()).await?;
     let listener = TcpListener::bind(("127.0.0.1", port))
         .await
         .map_err(|_| anyhow::anyhow!("Local HTTP port is busy; change http-port settings."))?;
-    anyhow::ensure!(crate::storage::matches(&root.join("config.local.json"), &snapshot), "Route changed; reconnect.");
+    anyhow::ensure!(
+        crate::storage::matches(&root.join("config.local.json"), &snapshot),
+        "Route changed; reconnect."
+    );
     let cancel = CancellationToken::new();
     let state = Arc::new(HttpState {
         client: route.http.clone(),
