@@ -177,7 +177,16 @@ fn unsafe_root_and_lock_are_rejected_without_creating_or_deleting_files() {
     let directory = root();
     let root = directory.path();
     let module = write(root, "node_modules/fixture/file", b"preserved");
-    for path in [PathBuf::from("."), root.join("child/../")] {
+    // PathBuf::push normalizes '..' for Windows verbatim roots; build the raw input instead.
+    let mut raw = root.as_os_str().to_os_string();
+    raw.push(format!("{0}child{0}..{0}", std::path::MAIN_SEPARATOR));
+    let traversal = PathBuf::from(raw);
+    assert!(
+        traversal
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    );
+    for path in [PathBuf::from("."), traversal] {
         assert!(cleanup::run(&path, true).is_err());
         assert!(cleanup::runtime_guard(&path).is_err());
     }
