@@ -8,6 +8,9 @@ use tokio::{
 };
 use url::Url;
 
+#[path = "callback_headers.rs"]
+mod callback_headers;
+
 pub const ENDPOINT: &str = "https://mcp.agensi.io/mcp";
 pub fn callback_port() -> u16 {
     let hash = format!("{:x}", md5::compute(ENDPOINT));
@@ -66,6 +69,7 @@ async fn read_callback(socket: &mut tokio::net::TcpStream, port: u16) -> Result<
     }
     let text =
         std::str::from_utf8(&bytes).map_err(|_| anyhow::anyhow!("Invalid callback request."))?;
+    callback_headers::validate(text, port)?;
     let line = text.split("\r\n").next().unwrap_or_default();
     let parts: Vec<_> = line.split(' ').collect();
     anyhow::ensure!(

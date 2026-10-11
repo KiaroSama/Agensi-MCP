@@ -12,7 +12,24 @@ on:
 permissions:
   contents: read
 jobs:
+  release-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release identity guard
+        run: python3 scripts/test-release.py
+      - name: Validate package and requested release identity
+        id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/check-release.py
   native:
+    needs: release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +90,11 @@ jobs:
           bash run.sh status
       - name: Isolated registration upgrade and preservation tests
         if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File scripts/test-registration.ps1
+        run: |
+          pwsh -NoProfile -File scripts/test-registration.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File scripts/test-registration-storage.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
         run: |
           New-Item .tmp -ItemType Directory -Force | Out-Null
@@ -81,6 +102,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Documentation tests
         run: cargo +1.99.0 test --locked --doc
+      - name: Black-box OAuth, revocation, filesystem and management regressions
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: python3 tests/audit/audit_regressions.py --source-root . --output .tmp/audit-results.json
+      - name: Retain sanitized black-box results
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-regressions-linux
+          path: .tmp/audit-results.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Public package and sensitive-pattern check
         run: pwsh -NoProfile -File scripts/check-publication.ps1
       - name: Enforce formatting result
@@ -113,7 +146,7 @@ jobs:
           retention-days: 7
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
-    needs: native
+    needs: [native, release-preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
