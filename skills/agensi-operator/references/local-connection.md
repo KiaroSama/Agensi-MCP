@@ -26,6 +26,19 @@ Run `pwsh -NoProfile -File ./run.ps1 -SignIn` only for an authorized human-login
 - Creator readiness comes from a successful current service response, not a screenshot.
 - Submitted, approved and live are distinct listing states.
 
+## Local diagnostic and cleanup commands
+
+When troubleshooting this bridge, `doctor` reports sanitized local route/session-expiry metadata;
+`network-check` probes the explicitly selected proxy's public egress and fresh DNS observations.
+These commands never add Agensi account permissions or send its token to diagnostic services.
+Resolver country/absence of every leak is not guaranteed; report unknown when observation fails.
+
+`cleanup` previews narrow legacy candidates; `cleanup --apply` removes only eligible idle paths.
+An application runtime lease prevents cleanup while commands are active. Preserve authentication,
+proxy files, installed skills/plugins, operational logs and the binary. Shared `.tmp`, build caches
+and unowned downloads are not blanket deleted. Owned staging uses cleanup on completion/error,
+not a guarantee against abrupt process or OS termination.
+
 ## Failure handling
 
 Inspect sanitized status and newest relevant operational log. Classify disconnected/selected-proxy failure, callback-port conflict, scope/cache mismatch, transport failure or account-service error. Preserve selected route and stop dependent actions. Don't switch routes, delete auth state, disable TLS or kill unrelated processes as a diagnostic shortcut.

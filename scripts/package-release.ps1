@@ -39,7 +39,7 @@ try {
         if ($status.mode -ne 'disconnected' -or @($status.profiles).Count -ne 0) { throw 'Download must start disconnected without profiles.' }
     } finally { Pop-Location }
     # The smoke check created local files; they are not part of a distributable download.
-    foreach ($relative in @('logs', '.management.lock')) {
+    foreach ($relative in @('logs', '.management.lock', '.runtime.lock')) {
         $generated = Join-Path $payload $relative
         if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated -Recurse -Force }
     }

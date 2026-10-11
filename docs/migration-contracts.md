@@ -37,6 +37,15 @@ selected-route HTTP client and persistent credential-store seam. Stored receipt 
 legacy data is copied only when public-client, issuer, scope and expiry metadata are compatible, and
 old files remain unchanged until the user-authorized final cleanup.
 
+## Diagnostic and cleanup extensions (2.1)
+
+Local `doctor`, `network-check` and preview/apply `cleanup` supplement the native CLI without altering
+Agensi's tool list or its account permissions. Their projection tests exclude credentials and distinguish
+missing DNS observations from success. Runtime commands hold a shared lease; destructive legacy
+cleanup takes an exclusive nonblocking lease and refuses linked/reparse or protected subtrees.
+Uncoordinated build caches and shared temporary files remain skipped. The cleanup contract is
+cooperative process coordination, not protection against malicious noncooperating filesystem swaps.
+
 No cutover claim is valid with unsupported required proxy/auth behavior or unverified native entry.
 Unit/source parity does not substitute for real integration. Private production traffic/billable calls
 are not replayed. New defaults/error handling cannot silently weaken secure behavior to match a defect.

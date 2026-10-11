@@ -38,7 +38,7 @@ function Show-Profiles($state) {
 function Show-Menu($state) {
     Write-Host ''
     Write-Painted 'Agensi MCP Main menu:' '1;38;5;117' Cyan
-    $items = @('Import proxy list from file', 'Select proxy profile', 'Add proxy profile', 'Direct connection (explicit)', 'Disconnect', 'Register Desktop and Code', 'Sign in (copy link to external browser)', 'Start local MCP HTTP server', 'Set local HTTP port')
+    $items = @('Import proxy list from file', 'Select proxy profile', 'Add proxy profile', 'Direct connection (explicit)', 'Disconnect', 'Register Desktop and Code', 'Sign in (copy link to external browser)', 'Start local MCP HTTP server', 'Set local HTTP port', 'Local diagnostics', 'Check proxy IP and DNS', 'Preview legacy cleanup', 'Apply legacy cleanup')
     for ($i = 0; $i -lt $items.Count; $i++) {
         $number = $i + 1
         Write-Painted "  $number. " '38;5;117' Cyan -NoNewline
@@ -118,9 +118,13 @@ try {
                     Invoke-Manager @('http-port', $port) | Out-Null
                     Write-Host 'HTTP port saved. Restart the local HTTP listener.' -ForegroundColor Green
                 }
+                '10' { & $manager doctor }
+                '11' { & $manager network-check }
+                '12' { & $manager cleanup }
+                '13' { & $manager cleanup --apply }
                 'exit' { exit 0 }
                 '0' { exit 0 }
-                default { Write-Host 'Enter a menu number from 1 to 9, or exit.' -ForegroundColor Red }
+                default { Write-Host 'Enter a menu number from 1 to 13, or exit.' -ForegroundColor Red }
             }
         } catch { Write-Host $_.Exception.Message -ForegroundColor Red }
     }

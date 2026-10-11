@@ -1,6 +1,6 @@
 [package]
 name = "agensi-mcp"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "GPL-3.0-only"
@@ -52,6 +52,14 @@ path = "native/tests/local_http.rs"
 [[test]]
 name = "settings"
 path = "native/tests/settings.rs"
+
+[[test]]
+name = "diagnostics"
+path = "native/tests/diagnostics.rs"
+
+[[test]]
+name = "cleanup"
+path = "native/tests/cleanup.rs"
 
 [dev-dependencies]
 rcgen = "=0.14.10"

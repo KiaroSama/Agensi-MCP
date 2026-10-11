@@ -391,6 +391,52 @@ no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses s
 logging stays disabled because third-party protocol logs may expose credential bytes. Retention manual;
 share reviewed sanitized excerpts only. Preserve real operational logs during cleanup.
 
+## Local diagnostics and cleanup
+
+These are native **local CLI commands**, not additional Agensi account privileges or server tools.
+
+```bash
+./bin/agensi-mcp.exe doctor
+```
+
+Reports build version, selected route, local HTTP port and sanitized session age/expiry metadata.
+It never prints tokens, client secrets or a full proxy URL. Token presence/expiry is not proof that
+refresh or live account access will succeed.
+
+```bash
+./bin/agensi-mcp.exe network-check
+```
+
+Uses the same explicitly selected proxy and proxy-side destination DNS as the bridge. Bounded calls
+to ipinfo.io, ipify.org and bash.ws inspect public egress and fresh authoritative DNS observations;
+no Agensi bearer token is sent. Resolver geography can change. An unavailable/empty DNS response is
+reported unknown, not proof of no leakage. No direct fallback or automatic profile switching.
+
+```bash
+./bin/agensi-mcp.exe cleanup
+```
+
+Preview only. To apply the exact reported eligible legacy removals:
+
+```bash
+./bin/agensi-mcp.exe cleanup --apply
+```
+
+Cleanup requires an idle application runtime and rejects linked/reparse paths. Only legacy
+`node_modules` and this project's known old-binary backup `.ai/ARCHIVE/pre-ci-binary` are eligible.
+Protected state, proxy configuration, skills/plugins, operational logs and installed `bin` remain.
+Uncoordinated build caches (`target`, `.cache`), distribution downloads and shared `.tmp` contents are
+reported skipped rather than guessed safe to delete while another build/client may be using them.
+
+Operation-owned staging/temp files already use Rust RAII or script `finally` cleanup on normal and
+handled-error paths. Abrupt OS/process termination can leave remnants; a shared temp root is not an
+ownership marker, so automatic blanket deletion is intentionally absent. These commands also appear
+as Windows menu10–13; use `bash run.sh <command>` on Unix.
+
+Actual competitor sales/revenue are not exposed by the current20-tool upstream MCP. This bridge
+cannot manufacture that data. Installs and ratings remain public uptake signals, not transactions;
+own Creator Studio analytics require separately authorized account access.
+
 ## Optional source build (developers only)
 
 Ready-made downloads are the normal installation path. To modify the Rust source, clone this repository

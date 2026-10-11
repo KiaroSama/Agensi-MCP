@@ -21,7 +21,41 @@ async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let action = args.first().map(String::as_str).unwrap_or("bridge");
     let result: anyhow::Result<()> = async {
+        let _runtime_guard = if action == "cleanup" {
+            None
+        } else {
+            Some(agensi_mcp::cleanup::runtime_guard(&root)?)
+        };
         match action {
+            "doctor" => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&agensi_mcp::diagnostics::doctor(&root).await?)?
+                );
+                Ok(())
+            }
+            "network-check" => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &agensi_mcp::diagnostics::network_check(&root).await?
+                    )?
+                );
+                Ok(())
+            }
+            "cleanup" => {
+                if args.len() > 2 || args.get(1).is_some_and(|arg| arg != "--apply") {
+                    anyhow::bail!("Use cleanup or cleanup --apply.");
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&agensi_mcp::cleanup::run(
+                        &root,
+                        args.get(1).is_some()
+                    )?)?
+                );
+                Ok(())
+            }
             "bridge" => bridge::run(&root).await,
             "http" => agensi_mcp::local_http::run(&root).await,
             "signin" | "--signin" => {

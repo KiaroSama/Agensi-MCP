@@ -4,7 +4,7 @@ Push-Location $root
 try {
     $files = @(& git ls-files --cached --others --exclude-standard)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate publication files.' }
-    $blocked = '(^|/)(\.ai|\.specify|specs|\.claude|\.codex|\.agents|\.cursor|\.kiro|node_modules|logs|\.state|\.cache|\.tmp|target|dist|bin|graphify-out|\.codebase-memory)(/|$)|(^|/)(secrets\.md|explain-AI\.md|\.ignoreme|config\.local\.json|Proxy list\.txt|\.env(\..*)?)$'
+    $blocked = '(^|/)(\.ai|\.specify|specs|\.claude|\.codex|\.agents|\.cursor|\.kiro|node_modules|logs|\.state|\.cache|\.tmp|target|dist|bin|graphify-out|\.codebase-memory)(/|$)|(^|/)(secrets\.md|explain-AI\.md|\.ignoreme|\.runtime\.lock|config\.local\.json|Proxy list\.txt|\.env(\..*)?)$'
     $secret = '(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|cs_live_[A-Za-z0-9]{20,})'
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
     foreach ($name in $files) {

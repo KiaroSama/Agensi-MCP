@@ -26,6 +26,7 @@
 /.state/
 /.tmp/
 /.mcp.json
+/.runtime.lock
 /.management.lock
 /config.local.json
 /Proxy list.txt

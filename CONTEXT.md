@@ -36,3 +36,8 @@ _Avoid_: MCP Connection
 **Creator Listing**:
 A creator's marketplace submission for review and publication, distinct from installing a skill.
 _Avoid_: Skill Package
+
+**Owned Temporary Artifact**: Disposable working data belonging to one operation, unlike shared temporary storage.
+**Runtime State**: Saved identity and user configuration; not disposable cache.
+**Cleanup Preview**: An inventory of eligible removals without performing them.
+**Resolver Observation**: A dated recursive DNS identity observed by a diagnostic service, not a location guarantee.
