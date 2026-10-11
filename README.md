@@ -465,10 +465,14 @@ cargo test --locked --all-targets -- --test-threads=2
 Use project CARGO_HOME/target environment as in build script. Windows launcher test requires built
 `bin/agensi-mcp.exe`; Linux tests cover portable core, not Windows GUI/client integration.
 
-CI Windows2025 and Ubuntu24.04: pinned Rust toolchain, fmt, clippy warnings-as-errors, locked build,
-source-oracle management/callback parity, real loopback proxy/DNS/auth handshakes, no-bypass/redirect,
-SOCKS4userid lifetime, SDK bidirectional protocol/custom/cancel/backpressure/route change, OAuthPKCE
-callback/session, TLS untrusted-certificate rejection, native entry/menu and public-package checks.
+CI covers Windows2025 x64, Ubuntu24.04 x64, macOS15 Apple Silicon and macOS15 Intel: pinned Rust
+toolchain, fmt, clippy warnings-as-errors, locked build, source-oracle management/callback parity,
+real loopback proxy/DNS/auth handshakes, no-bypass/redirect, SOCKS4userid lifetime, SDK bidirectional
+protocol/custom/cancel/backpressure/route change, OAuthPKCE callback/session, TLS certificate rejection,
+native entry/menu and public-package checks. Version2.1 adds sanitized diagnostic projections,
+captured-route consistency, cleanup preview/apply preservation, exclusive/shared runtime leases,
+linked-path refusal and truthful partial-deletion checks. Release jobs additionally verify extracted
+archives, executable bytes, startup and SHA256 checksums before publishing four platform downloads.
 Testcases have local deadlines; jobs have outer time budgets and constrained compile/test concurrency.
 No tests purchase, publish or contact Agensi. Source parity and known limitations:
 [Migration contracts](docs/migration-contracts.md). Positive custom-CA HTTPS-proxy parity and full

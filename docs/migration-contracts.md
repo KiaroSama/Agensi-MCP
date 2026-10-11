@@ -1,6 +1,6 @@
 # Rust Migration Contracts
 
-Native Rust2.0 replaces the Node runtime while preserving schema1 route/profile state, additive import,
+Native Rust2.x replaces the Node runtime while preserving schema1 route/profile state, additive import,
 redacted status, new-package-only inline installation and fail-closed routing. PowerShell remains the
 launcher/menu/registration adapter. No Rust process invokes Node.
 
@@ -41,7 +41,9 @@ old files remain unchanged until the user-authorized final cleanup.
 
 Local `doctor`, `network-check` and preview/apply `cleanup` supplement the native CLI without altering
 Agensi's tool list or its account permissions. Their projection tests exclude credentials and distinguish
-missing DNS observations from success. Runtime commands hold a shared lease; destructive legacy
+missing DNS observations from success. Network diagnostics derive both selected configuration and
+change-detection identity from one captured byte read; a subsequent profile change invalidates that
+snapshot rather than accepting a different selected route. Runtime commands hold a shared lease; destructive legacy
 cleanup takes an exclusive nonblocking lease and refuses linked/reparse or protected subtrees.
 Uncoordinated build caches and shared temporary files remain skipped. The cleanup contract is
 cooperative process coordination, not protection against malicious noncooperating filesystem swaps.
