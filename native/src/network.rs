@@ -68,16 +68,17 @@ pub fn client(config: &Config) -> Result<RoutedClient> {
 }
 
 pub struct OAuthHttp {
-    pub client: reqwest::Client,
+    pub client: RoutedClient,
     pub settings: PathBuf,
     pub snapshot: Vec<u8>,
 }
 impl OAuthHttpClient for OAuthHttp {
     fn execute(&self, input: OAuthHttpRequest) -> OAuthHttpClientFuture<'_> {
         Box::pin(async move {
-            if std::fs::read(&self.settings).unwrap_or_default() != self.snapshot {
+            if !crate::storage::matches(&self.settings, &self.snapshot) {
                 return Err(std::io::Error::other("Route changed; reconnect.").into());
             }
+            watch_route(&self.settings, &self.snapshot, async {
             let (parts, body) = input.request.into_parts();
             let response = self
                 .client
@@ -102,6 +103,29 @@ impl OAuthHttpClient for OAuthHttp {
             *output.status_mut() = status;
             *output.headers_mut() = headers;
             Ok(output)
+            }).await.map_err(|_| std::io::Error::other("OAuth operation failed or route changed; values omitted.").into())
         })
+    }
+}
+
+/// Cancel bounded work on a route change, and reject stale results before returning them.
+pub async fn watch_route<T>(
+    settings: &std::path::Path,
+    snapshot: &[u8],
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    anyhow::ensure!(crate::storage::matches(settings, snapshot), "Route changed; reconnect.");
+    tokio::pin!(future);
+    let mut interval = tokio::time::interval(Duration::from_millis(200));
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                anyhow::ensure!(crate::storage::matches(settings, snapshot), "Route changed; reconnect.");
+            }
+            result = &mut future => {
+                anyhow::ensure!(crate::storage::matches(settings, snapshot), "Route changed; reconnect.");
+                return result;
+            }
+        }
     }
 }

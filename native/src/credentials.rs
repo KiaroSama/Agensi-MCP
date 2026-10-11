@@ -24,6 +24,7 @@ impl FileCredentials {
         }
     }
     pub async fn import_legacy(&self, root: &std::path::Path) -> anyhow::Result<bool> {
+        crate::storage::check_file(&self.path)?;
         if self.path.exists() {
             return Ok(false);
         }
@@ -31,18 +32,14 @@ impl FileCredentials {
         let old = root.join(".state/auth/mcp-remote-v1");
         let info_path = old.join(format!("{hash}_client_info.json"));
         let tokens_path = old.join(format!("{hash}_tokens.json"));
+        crate::storage::check_file(&info_path)?;
+        crate::storage::check_file(&tokens_path)?;
         if !info_path.exists() || !tokens_path.exists() {
             return Ok(false);
         }
         let read = |path: PathBuf| -> anyhow::Result<serde_json::Value> {
-            let size = fs::metadata(&path)
-                .map_err(|_| anyhow::anyhow!("Cannot read legacy session."))?
-                .len();
-            if size > 1024 * 1024 {
-                anyhow::bail!("Legacy session exceeds size limit.");
-            }
-            let bytes =
-                fs::read(path).map_err(|_| anyhow::anyhow!("Cannot read legacy session."))?;
+            let bytes = crate::storage::read_optional(&path)?
+                .ok_or_else(|| anyhow::anyhow!("Cannot read legacy session."))?;
             serde_json::from_slice(&bytes)
                 .map_err(|_| anyhow::anyhow!("Invalid legacy session; values omitted."))
         };
@@ -101,14 +98,17 @@ impl FileCredentials {
         let path = self.path.with_extension("lock");
         tokio::task::spawn_blocking(move || {
             let parent = path.parent().ok_or_else(store_error)?;
+            crate::storage::check_file(&path).map_err(|_| store_error())?;
             fs::create_dir_all(parent).map_err(|_| store_error())?;
-            let file = OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(path)
-                .map_err(|_| store_error())?;
+            crate::storage::check_file(&path).map_err(|_| store_error())?;
+            let mut options = OpenOptions::new();
+            options.create(true).truncate(false).read(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let file = options.open(path).map_err(|_| store_error())?;
             let deadline = Instant::now() + Duration::from_secs(5);
             loop {
                 if file.try_lock_exclusive().is_ok() {
@@ -136,21 +136,18 @@ impl Drop for Lock {
 #[async_trait]
 impl CredentialStore for FileCredentials {
     async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
-        let bytes = match fs::read(&self.path) {
-            Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(store_error()),
+        let Some(bytes) = crate::storage::read_optional(&self.path).map_err(|_| store_error())? else {
+            return Ok(None);
         };
-        if bytes.len() > 1024 * 1024 {
-            return Err(store_error());
-        }
         serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|_| store_error())
     }
     async fn save(&self, value: StoredCredentials) -> Result<(), AuthError> {
         let parent = self.path.parent().ok_or_else(store_error)?;
+        crate::storage::check_file(&self.path).map_err(|_| store_error())?;
         fs::create_dir_all(parent).map_err(|_| store_error())?;
+        crate::storage::check_file(&self.path).map_err(|_| store_error())?;
         let bytes = serde_json::to_vec_pretty(&value).map_err(|_| store_error())?;
         if bytes.len() > 1024 * 1024 {
             return Err(store_error());
@@ -159,6 +156,7 @@ impl CredentialStore for FileCredentials {
         temp.write_all(&bytes)
             .and_then(|_| temp.as_file().sync_all())
             .map_err(|_| store_error())?;
+        crate::storage::check_file(&self.path).map_err(|_| store_error())?;
         temp.persist(&self.path).map_err(|_| store_error())?;
         Ok(())
     }

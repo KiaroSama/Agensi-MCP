@@ -23,6 +23,7 @@ pub fn command(root: &Path, args: &[String], stdin: &str) -> Result<Value> {
         // The source checks settings even for inline installation; preserve failclosed behavior.
         config::load(root)?;
         let read = || -> Result<Vec<InlineFile>> {
+            ensure!(std::fs::metadata(value)?.is_file(), "Inline input must be a regular file.");
             let mut file = File::open(value)?;
             ensure!(
                 file.metadata()?.is_file() && file.metadata()?.len() <= 128 * 1024 * 1024,

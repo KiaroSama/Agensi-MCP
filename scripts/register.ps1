@@ -1,5 +1,31 @@
 param([switch]$DryRun, [switch]$UpgradeProjectEntry, [string]$DesktopConfigPath, [string]$CodeConfigPath)
 $ErrorActionPreference = 'Stop'
+function Write-RegistrationLog {
+    param([ValidateSet('INFO', 'WARNING', 'ERROR', 'DEBUG')][string]$Level, [string]$Message)
+    [Console]::Error.WriteLine(('[{0:yyyy-MM-dd HH:mm:ss} UTC] [{1}] [registration] {2}' -f [DateTime]::UtcNow, $Level, $Message))
+}
+Write-RegistrationLog INFO 'Validating registration targets; configuration values omitted.'
+function Read-ClientConfig([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return @{ Original = $null; Config = @{} } }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.PSIsContainer -or $item.Length -gt 1MB) { throw 'Client configuration is not a bounded regular file.' }
+    $original = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($original)) { throw 'Existing client configuration is empty; preserving it.' }
+    try { $value = $original | ConvertFrom-Json -AsHashtable } catch { throw 'Client configuration is invalid JSON; values omitted.' }
+    if (-not ($value -is [System.Collections.IDictionary])) { throw 'Client configuration is not a JSON object.' }
+    if ($value.ContainsKey('mcpServers') -and -not ($value.mcpServers -is [System.Collections.IDictionary])) { throw 'Client MCP configuration is not an object.' }
+    return @{ Original = $original; Config = $value }
+}
+function Save-ClientConfig([string]$Path, $Original, $Config) {
+    $now = if (Test-Path -LiteralPath $Path) { [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) } else { $null }
+    if ($now -cne $Original) { throw 'Client settings changed concurrently; retry registration.' }
+    [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($Path))) | Out-Null
+    $temp = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temp, ($Config | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temp, $Path, $true)
+    } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
+}
 $root = Split-Path $PSScriptRoot -Parent
 $binary = Join-Path $root 'bin/agensi-mcp.exe'
 if (-not (Test-Path $binary)) { throw 'Download/extract the native executable before registration.' }
@@ -17,11 +43,10 @@ if (-not $DesktopConfigPath) {
     if ($candidates.Count -gt 1) { throw 'Multiple Desktop installations found. Supply -DesktopConfigPath.' }
     $DesktopConfigPath = if ($candidates.Count -eq 1) { $candidates[0] } else { $normal }
 }
-$old = if (Test-Path $DesktopConfigPath) { [IO.File]::ReadAllText($DesktopConfigPath, [Text.Encoding]::UTF8) } else { $null }
-$config = if ($old) { $old | ConvertFrom-Json -AsHashtable } else { @{} }
-if (-not ($config -is [System.Collections.IDictionary])) { throw 'Desktop config is not a JSON object.' }
+$desktopState = Read-ClientConfig $DesktopConfigPath
+$old = $desktopState.Original
+$config = $desktopState.Config
 if (-not $config.ContainsKey('mcpServers')) { $config.mcpServers = @{} }
-if (-not ($config.mcpServers -is [System.Collections.IDictionary])) { throw 'Desktop MCP config is not an object.' }
 function Test-ProjectEntry($Existing) {
     if ($Existing.command -eq $binary -and ($Existing.args -join "`0") -eq 'bridge') { return $true }
     $legacy = Join-Path $root 'src/bridge.mjs'
@@ -37,48 +62,36 @@ if ($config.mcpServers.ContainsKey('agensi')) {
         throw 'A different Agensi Desktop registration exists. Review it before replacement.'
     }
 }
-$config.mcpServers.agensi = $entry
+# Preserve exact entries, including caller-owned extra environment settings.
+if (-not $config.mcpServers.ContainsKey('agensi') -or -not (Test-ExactEntry $config.mcpServers.agensi)) { $config.mcpServers.agensi = $entry }
+$codePath = if ($CodeConfigPath) { $CodeConfigPath } else { Join-Path $HOME '.claude.json' }
+if ([IO.Path]::GetFullPath($codePath) -eq [IO.Path]::GetFullPath($DesktopConfigPath)) { throw 'Desktop and Code targets must be distinct.' }
+$codeState = Read-ClientConfig $codePath
+$codeOriginal = $codeState.Original
+$code = $codeState.Config
+if (-not $code.ContainsKey('mcpServers')) { $code.mcpServers = @{} }
+$hasCodeEntry = $code.mcpServers.ContainsKey('agensi')
+if ($hasCodeEntry -and -not (Test-ExactEntry $code.mcpServers.agensi) -and
+    -not ($UpgradeProjectEntry -and (Test-ProjectEntry $code.mcpServers.agensi))) { throw 'A different Agensi Code registration exists. Review it before replacement.' }
 if ($DryRun) {
     Write-Output ('Desktop target: ' + $DesktopConfigPath)
-    Write-Output 'Code target: user scope; name: agensi; transport: local stdio bridge to Streamable HTTP'
+    Write-Output ('Code target: ' + $codePath)
     Write-Output ($entry | ConvertTo-Json -Depth 5)
+    Write-RegistrationLog INFO 'Both registration targets validated; dry-run made no changes.'
     exit 0
 }
 [IO.Directory]::CreateDirectory($tempRoot) | Out-Null
-# Check for an existing user entry without emitting unrelated credentials.
-$codePath = if ($CodeConfigPath) { $CodeConfigPath } else { Join-Path $HOME '.claude.json' }
-if (Test-Path $codePath) {
-    $codeOriginal = [IO.File]::ReadAllText($codePath, [Text.Encoding]::UTF8)
-    $code = $codeOriginal | ConvertFrom-Json -AsHashtable
-    if ($code.mcpServers -and $code.mcpServers.ContainsKey('agensi')) {
-        $existing = $code.mcpServers.agensi
-        if (-not (Test-ExactEntry $existing)) {
-            if (-not ($UpgradeProjectEntry -and (Test-ProjectEntry $existing))) { throw 'A different Agensi Code registration exists. Review it before replacement.' }
-            $code.mcpServers.agensi = $entry
-            $codeNow = [IO.File]::ReadAllText($codePath, [Text.Encoding]::UTF8)
-            if (($codeNow | ConvertFrom-Json -AsHashtable | ConvertTo-Json -Depth 100 -Compress) -cne ($codeOriginal | ConvertFrom-Json -AsHashtable | ConvertTo-Json -Depth 100 -Compress)) { throw 'Code settings changed concurrently; retry registration.' }
-            $codeTemp = $codePath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
-            try {
-                [IO.File]::WriteAllText($codeTemp, ($code | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
-                [IO.File]::Move($codeTemp, $codePath, $true)
-            } finally { if (Test-Path -LiteralPath $codeTemp) { Remove-Item -LiteralPath $codeTemp } }
-        }
-    } else {
-        $claude = Get-Command claude -ErrorAction Stop
-        & $claude.Source mcp add-json --scope user agensi ($entry | ConvertTo-Json -Compress -Depth 5)
-        if ($LASTEXITCODE -ne 0) { throw 'Code registration failed; Desktop unchanged.' }
+if ($CodeConfigPath -or $hasCodeEntry) {
+    # Explicit test/custom paths never invoke the CLI against a different user configuration.
+    if (-not $hasCodeEntry -or -not (Test-ExactEntry $code.mcpServers.agensi)) {
+        $code.mcpServers.agensi = $entry
+        Save-ClientConfig $codePath $codeOriginal $code
     }
 } else {
     $claude = Get-Command claude -ErrorAction Stop
     & $claude.Source mcp add-json --scope user agensi ($entry | ConvertTo-Json -Compress -Depth 5)
     if ($LASTEXITCODE -ne 0) { throw 'Code registration failed; Desktop unchanged.' }
 }
-$now = if (Test-Path $DesktopConfigPath) { [IO.File]::ReadAllText($DesktopConfigPath, [Text.Encoding]::UTF8) } else { $null }
-if ($now -cne $old) { throw 'Desktop settings changed concurrently; retry registration.' }
-[IO.Directory]::CreateDirectory((Split-Path $DesktopConfigPath -Parent)) | Out-Null
-$temp = $DesktopConfigPath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
-try {
-    [IO.File]::WriteAllText($temp, ($config | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
-    [IO.File]::Move($temp, $DesktopConfigPath, $true)
-} finally { if (Test-Path $temp) { Remove-Item -LiteralPath $temp } }
-Write-Output 'Agensi registered in Desktop and global Code. Restart the clients after selecting your route.'
+Save-ClientConfig $DesktopConfigPath $old $config
+Write-RegistrationLog INFO 'Registration completed for both selected targets.'
+Write-Output 'Agensi registered in the selected Desktop and Code targets. Restart the clients after selecting your route.'

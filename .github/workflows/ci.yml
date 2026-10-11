@@ -52,6 +52,8 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Formatting
+        id: formatting
+        continue-on-error: true
         run: cargo +1.99.0 fmt --all --check
       - name: Static checks
         run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings
@@ -73,11 +75,17 @@ jobs:
         if: runner.os == 'Windows'
         run: pwsh -NoProfile -File scripts/test-registration.ps1
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
-        run: cargo +1.99.0 test --locked --all-targets -- --test-threads=2
+        run: |
+          New-Item .tmp -ItemType Directory -Force | Out-Null
+          cargo +1.99.0 test --locked --all-targets -- --test-threads=2 2>&1 | Tee-Object -FilePath .tmp/ci-native-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Documentation tests
         run: cargo +1.99.0 test --locked --doc
       - name: Public package and sensitive-pattern check
         run: pwsh -NoProfile -File scripts/check-publication.ps1
+      - name: Enforce formatting result
+        if: always() && steps.formatting.outcome != 'success'
+        run: exit 1
       - name: Build optimized downloadable executable
         if: github.event_name == 'workflow_dispatch'
         run: cargo +1.99.0 build --locked --release
@@ -92,6 +100,17 @@ jobs:
             dist/agensi-mcp-${{ matrix.platform }}.*
           if-no-files-found: error
           retention-days: 30
+      - name: Collect Linux validation evidence
+        if: always() && runner.os == 'Linux'
+        run: pwsh -NoProfile -File scripts/collect-ci-evidence.ps1
+      - name: Retain Linux validation evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-validation-evidence
+          path: .tmp/ci-review/
+          if-no-files-found: error
+          retention-days: 7
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
     needs: native

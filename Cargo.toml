@@ -61,6 +61,10 @@ path = "native/tests/diagnostics.rs"
 name = "cleanup"
 path = "native/tests/cleanup.rs"
 
+[[test]]
+name = "audit_regressions"
+path = "native/tests/audit_regressions.rs"
+
 [dev-dependencies]
 rcgen = "=0.14.10"
 tokio-rustls = "=0.26.6"
