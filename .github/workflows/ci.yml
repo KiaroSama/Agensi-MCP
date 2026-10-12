@@ -76,8 +76,8 @@ jobs:
         run: cargo +1.99.0 fmt --all --check
       - name: Static checks
         run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings
-      - name: Build native executable
-        run: cargo +1.99.0 build --locked
+      - name: Build native executable and test targets
+        run: cargo +1.99.0 build --locked --all-targets
       - name: Prepare Windows launcher executable
         if: runner.os == 'Windows'
         run: |
