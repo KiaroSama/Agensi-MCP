@@ -59,8 +59,9 @@ async fn main() {
             "bridge" => bridge::run(&root).await,
             "http" => agensi_mcp::local_http::run(&root).await,
             "signin" | "--signin" => {
-                let cfg = config::load(&root)?;
-                auth::signin(&root, network::client(&cfg)?).await
+                let snapshot = agensi_mcp::storage::snapshot(&root)?;
+                let cfg = config::from_bytes(&snapshot)?;
+                auth::signin(&root, network::client(&cfg)?, snapshot).await
             }
             "probe" => {
                 println!("{}", bridge::probe(&root).await?);

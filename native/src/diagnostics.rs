@@ -92,8 +92,8 @@ pub fn resolver_summary(value: &Value) -> Result<Value> {
 }
 
 pub fn route_unchanged(root: &Path, snapshot: &[u8]) -> Result<()> {
-    let current = std::fs::read(root.join("config.local.json"))
-        .map_err(|_| anyhow!("Cannot verify selected route."))?;
+    let current =
+        crate::storage::snapshot(root).map_err(|_| anyhow!("Cannot verify selected route."))?;
     if current != snapshot {
         bail!("Route changed; diagnostic stopped without fallback.");
     }
@@ -132,13 +132,14 @@ pub async fn network_check(root: &Path) -> Result<Value> {
 }
 async fn check(root: &Path) -> Result<Value> {
     config::reject_linked_ancestors(&root.join("config.local.json"))?;
-    let snapshot = std::fs::read(root.join("config.local.json"))
-        .map_err(|_| anyhow!("Cannot read selected route."))?;
+    let snapshot =
+        crate::storage::snapshot(root).map_err(|_| anyhow!("Cannot read selected route."))?;
     let cfg = config::from_bytes(&snapshot)?;
     if cfg.mode != config::Mode::Proxy {
         bail!("Network diagnostic requires an explicitly selected proxy.");
     }
     let route = network::client(&cfg)?;
+    network::watch_route(&root.join("config.local.json"), &snapshot, async {
     route_unchanged(root, &snapshot)?;
     let egress = address_summary(&get_json(&route, "https://ipinfo.io/json").await?)?;
     route_unchanged(root, &snapshot)?;
@@ -160,6 +161,7 @@ async fn check(root: &Path) -> Result<Value> {
         "second_source":second,"egress_matches_second":second.as_ref().map(|v|v["ip"]==egress["ip"]),"dns":dns,
         "destination_dns":"proxy-side","timezone_metadata_added":false,"method":"Selected native routed client; no Agensi token sent to diagnostic services."}),
     )
+    }).await
 }
 async fn dns_check(root: &Path, snapshot: &[u8], route: &network::RoutedClient) -> Result<Value> {
     route_unchanged(root, snapshot)?;

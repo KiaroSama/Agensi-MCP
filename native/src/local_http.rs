@@ -85,9 +85,7 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
             "Unsupported MCP HTTP method.",
         );
     }
-    if std::fs::read(&state.settings).unwrap_or_default() != state.snapshot
-        || state.cancel.is_cancelled()
-    {
+    if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
         return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
     }
     let permit = match state.requests.clone().try_acquire_owned() {
@@ -106,15 +104,24 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
         Ok(Ok(b)) => b,
         _ => return error(StatusCode::PAYLOAD_TOO_LARGE, "MCP request body refused."),
     };
-    let token = match state.credentials.token().await {
-        Ok(t) => t,
-        Err(_) => {
+    if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
+    }
+    let token = match tokio::select! {
+        _ = state.cancel.cancelled() => return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect."),
+        token = tokio::time::timeout(Duration::from_secs(20), state.credentials.token()) => token,
+    } {
+        Ok(Ok(t)) => t,
+        _ => {
             return error(
                 StatusCode::UNAUTHORIZED,
                 "Session unavailable; renew sign-in.",
             );
         }
     };
+    if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
+    }
     let mut upstream = state
         .client
         .request(parts.method, &state.endpoint)
@@ -141,6 +148,9 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
         _=state.cancel.cancelled()=>return error(StatusCode::SERVICE_UNAVAILABLE,"Route changed; reconnect."),
         response=tokio::time::timeout(Duration::from_secs(30),upstream.send())=>match response {Ok(Ok(r))=>r,_=>return error(StatusCode::BAD_GATEWAY,"Selected-route upstream request failed; no fallback or replay.")},
     };
+    if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
+    }
     let mut builder = Response::builder().status(response.status());
     for name in [
         header::CONTENT_TYPE,
@@ -167,14 +177,19 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
         .unwrap_or_else(|_| error(StatusCode::BAD_GATEWAY, "Invalid upstream response."))
 }
 pub async fn run(root: &std::path::Path) -> Result<()> {
-    let config = config::load(root)?;
+    let snapshot = crate::storage::snapshot(root)?;
+    let config = config::from_bytes(&snapshot)?;
     let port = settings::http_port(&config)?;
     let route = network::client(&config)?;
-    let manager: AuthorizationManager = auth::authenticated(root, route.clone()).await?;
+    let manager: AuthorizationManager =
+        auth::authenticated(root, route.clone(), snapshot.clone()).await?;
     let listener = TcpListener::bind(("127.0.0.1", port))
         .await
         .map_err(|_| anyhow::anyhow!("Local HTTP port is busy; change http-port settings."))?;
-    let snapshot = std::fs::read(root.join("config.local.json"))?;
+    anyhow::ensure!(
+        crate::storage::matches(&root.join("config.local.json"), &snapshot),
+        "Route changed; reconnect."
+    );
     let cancel = CancellationToken::new();
     let state = Arc::new(HttpState {
         client: route.http.clone(),
@@ -195,7 +210,7 @@ pub async fn run(root: &std::path::Path) -> Result<()> {
     let watcher = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(200));
         loop {
-            tokio::select! {_=stop.cancelled()=>break,_=interval.tick()=>if std::fs::read(&settings_path).unwrap_or_default()!=initial{stop.cancel();break;},_=tokio::signal::ctrl_c()=>{stop.cancel();break;}}
+            tokio::select! {_=stop.cancelled()=>break,_=interval.tick()=>if !crate::storage::matches(&settings_path,&initial){stop.cancel();break;},_=tokio::signal::ctrl_c()=>{stop.cancel();break;}}
         }
     });
     let result = axum::serve(listener, router(state))

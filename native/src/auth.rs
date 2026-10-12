@@ -8,26 +8,44 @@ use tokio::{
 };
 use url::Url;
 
+#[path = "callback_headers.rs"]
+mod callback_headers;
+
 pub const ENDPOINT: &str = "https://mcp.agensi.io/mcp";
 pub fn callback_port() -> u16 {
     let hash = format!("{:x}", md5::compute(ENDPOINT));
     let value = u16::from_str_radix(&hash[..4], 16).unwrap_or(0);
     (3335 + u32::from(value) % 45816) as u16
 }
+fn valid_callback_state(url: &Url, expected: &str) -> Result<()> {
+    for key in ["state", "code", "iss", "error"] {
+        anyhow::ensure!(
+            url.query_pairs().filter(|(k, _)| k == key).count() <= 1,
+            "Ambiguous callback parameters refused."
+        );
+    }
+    let actual = url
+        .query_pairs()
+        .find(|(k, _)| k == "state")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
+    use subtle::ConstantTimeEq;
+    anyhow::ensure!(
+        !expected.is_empty()
+            && actual.len() == expected.len()
+            && bool::from(actual.as_bytes().ct_eq(expected.as_bytes())),
+        "Invalid authorization state."
+    );
+    Ok(())
+}
+
 pub fn checked_callback(url: &Url, expected: &str) -> Result<(String, Option<String>)> {
+    valid_callback_state(url, expected)?;
     let get = |name: &str| {
         url.query_pairs()
             .find(|(k, _)| k == name)
-            .map(|(_, v)| v.to_string())
+            .map(|(_, v)| v.into_owned())
     };
-    let state = get("state").unwrap_or_default();
-    use subtle::ConstantTimeEq;
-    if expected.is_empty()
-        || state.len() != expected.len()
-        || !bool::from(state.as_bytes().ct_eq(expected.as_bytes()))
-    {
-        bail!("Invalid authorization state.");
-    }
     if get("error").is_some() {
         bail!("Authorization was not approved.");
     }
@@ -36,19 +54,70 @@ pub fn checked_callback(url: &Url, expected: &str) -> Result<(String, Option<Str
         .ok_or_else(|| anyhow::anyhow!("Authorization was not approved."))?;
     Ok((code, get("iss").filter(|v| !v.is_empty())))
 }
+
+async fn read_callback(socket: &mut tokio::net::TcpStream, port: u16) -> Result<Url> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 1024];
+    loop {
+        let count = socket.read(&mut buffer).await?;
+        anyhow::ensure!(count != 0, "Incomplete callback request.");
+        bytes.extend_from_slice(&buffer[..count]);
+        anyhow::ensure!(bytes.len() <= 16384, "Callback headers exceed limit.");
+        if bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let text =
+        std::str::from_utf8(&bytes).map_err(|_| anyhow::anyhow!("Invalid callback request."))?;
+    callback_headers::validate(text, port)?;
+    let line = text.split("\r\n").next().unwrap_or_default();
+    let parts: Vec<_> = line.split(' ').collect();
+    anyhow::ensure!(
+        parts.len() == 3
+            && parts[0] == "GET"
+            && matches!(parts[2], "HTTP/1.0" | "HTTP/1.1")
+            && parts[1].starts_with('/')
+            && !parts[1].starts_with("//")
+            && !parts[1].contains('#')
+            && !parts[1].chars().any(char::is_control),
+        "Invalid callback request."
+    );
+    let url = Url::parse(&format!("http://127.0.0.1:{port}{}", parts[1]))
+        .map_err(|_| anyhow::anyhow!("Invalid callback request."))?;
+    anyhow::ensure!(url.path() == "/oauth/callback", "Invalid callback path.");
+    Ok(url)
+}
+
+async fn callback_reply(socket: &mut tokio::net::TcpStream, accepted: bool) {
+    let (status, body) = if accepted {
+        ("200 OK", "Authorization received; return to the menu.")
+    } else {
+        ("400 Bad Request", "Authorization request rejected.")
+    };
+    let reply = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    // A browser disconnect must not turn a persisted session into a reported failure.
+    let _ = tokio::time::timeout(Duration::from_secs(2), socket.write_all(reply.as_bytes())).await;
+}
+
 pub async fn manager(
     root: &Path,
     client: crate::network::RoutedClient,
+    snapshot: Vec<u8>,
 ) -> Result<AuthorizationManager> {
     let settings = root.join("config.local.json");
-    let snapshot =
-        std::fs::read(&settings).map_err(|_| anyhow::anyhow!("Cannot read selected route."))?;
+    anyhow::ensure!(
+        crate::storage::matches(&settings, &snapshot),
+        "Route changed; reconnect."
+    );
     let mut manager = AuthorizationManager::new_with_oauth_http_client(
         ENDPOINT,
         Arc::new(OAuthHttp {
-            client: client.http.clone(),
-            settings,
-            snapshot,
+            client,
+            settings: settings.clone(),
+            snapshot: snapshot.clone(),
         }),
     )
     .await
@@ -65,13 +134,18 @@ pub async fn manager(
             .map_err(|_| anyhow::anyhow!("Legacy session import failed; old session preserved."))?;
     }
     manager.set_credential_store(store);
+    anyhow::ensure!(
+        crate::storage::matches(&settings, &snapshot),
+        "Route changed; reconnect."
+    );
     Ok(manager)
 }
 pub async fn authenticated(
     root: &Path,
     client: crate::network::RoutedClient,
+    snapshot: Vec<u8>,
 ) -> Result<AuthorizationManager> {
-    let mut manager = manager(root, client).await?;
+    let mut manager = manager(root, client, snapshot.clone()).await?;
     if !manager
         .initialize_from_store()
         .await
@@ -83,11 +157,19 @@ pub async fn authenticated(
         .get_access_token()
         .await
         .map_err(|_| anyhow::anyhow!("Session expired or rejected; renew sign-in."))?;
+    anyhow::ensure!(
+        crate::storage::matches(&root.join("config.local.json"), &snapshot),
+        "Route changed; reconnect."
+    );
     Ok(manager)
 }
-pub async fn signin(root: &Path, client: crate::network::RoutedClient) -> Result<()> {
+pub async fn signin(
+    root: &Path,
+    client: crate::network::RoutedClient,
+    snapshot: Vec<u8>,
+) -> Result<()> {
     let store = FileCredentials::new(root);
-    let auth_manager = manager(root, client).await?;
+    let auth_manager = manager(root, client, snapshot.clone()).await?;
     let _guard = store
         .guard()
         .await
@@ -122,7 +204,12 @@ pub async fn signin(root: &Path, client: crate::network::RoutedClient) -> Result
     eprintln!(
         "Copy this complete Agensi sign-in link into your external browser:\n{link}\nKeep this process open until approval completes."
     );
-    complete_authorization(&listener, port, &mut state, &expected).await?;
+    crate::network::watch_route(
+        &root.join("config.local.json"),
+        &snapshot,
+        complete_authorization(&listener, port, &mut state, &expected),
+    )
+    .await?;
     let manager = state
         .into_authorization_manager()
         .ok_or_else(|| anyhow::anyhow!("Authorization not completed."))?;
@@ -143,22 +230,44 @@ pub async fn complete_authorization(
     tokio::time::timeout(Duration::from_secs(300), async {
         loop {
             let (mut socket, _) = listener.accept().await?;
-            let mut request = vec![0u8; 16384];
-            let count = tokio::time::timeout(Duration::from_secs(5), socket.read(&mut request)).await??;
-            let request = std::str::from_utf8(&request[..count]).map_err(|_| anyhow::anyhow!("Invalid callback request."))?;
-            let path = request.lines().next().and_then(|l| l.strip_prefix("GET ")).and_then(|l| l.split_whitespace().next()).unwrap_or("");
-            let callback = Url::parse(&format!("http://127.0.0.1:{port}{path}"))?;
-            let get = |name: &str| callback.query_pairs().find(|(k,_)| k == name).map(|(_,v)| v.to_string());
-            if callback.path() != "/oauth/callback" || get("state").as_deref() != Some(expected) {
-                socket.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?; continue;
+            let callback = match tokio::time::timeout(
+                Duration::from_secs(5),
+                read_callback(&mut socket, port),
+            )
+            .await
+            {
+                Ok(Ok(url)) => url,
+                _ => {
+                    callback_reply(&mut socket, false).await;
+                    continue;
+                }
+            };
+            if valid_callback_state(&callback, expected).is_err() {
+                callback_reply(&mut socket, false).await;
+                continue;
             }
-            let (code, issuer) = checked_callback(&callback, expected)?;
-            let result = state.handle_callback_with_issuer(&code, expected, issuer.as_deref()).await;
-            let reply = if result.is_ok() { "Authorization received; return to the menu." } else { "Authorization rejected; no session claimed." };
-            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).as_bytes()).await?;
-            result.map_err(|_| anyhow::anyhow!("Callback/token exchange failed; no session claimed."))?;
+            if callback.query_pairs().any(|(key, _)| key == "error") {
+                callback_reply(&mut socket, false).await;
+                bail!("Authorization was not approved.");
+            }
+            let (code, issuer) = match checked_callback(&callback, expected) {
+                Ok(value) => value,
+                Err(_) => {
+                    callback_reply(&mut socket, false).await;
+                    continue;
+                }
+            };
+            let result = state
+                .handle_callback_with_issuer(&code, expected, issuer.as_deref())
+                .await;
+            callback_reply(&mut socket, result.is_ok()).await;
+            result.map_err(|_| {
+                anyhow::anyhow!("Callback/token exchange failed; no session claimed.")
+            })?;
             return Ok::<(), anyhow::Error>(());
         }
-    }).await.map_err(|_| anyhow::anyhow!("Sign-in timed out; selected route preserved."))??;
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Sign-in timed out; selected route preserved."))??;
     Ok(())
 }

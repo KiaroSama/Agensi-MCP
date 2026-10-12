@@ -37,6 +37,21 @@ selected-route HTTP client and persistent credential-store seam. Stored receipt 
 legacy data is copied only when public-client, issuer, scope and expiry metadata are compatible, and
 old files remain unchanged until the user-authorized final cleanup.
 
+## Reviewed runtime invariants
+
+OAuth retains the complete selected-route owner, including the SOCKS4 USERID adapter. Auth,
+HTTP startup, stdio, probes and diagnostics derive clients/change detection from one bounded
+settings snapshot and reject stale results. Callback headers are complete/bounded and require one
+exact loopback Host in both supported HTTP versions; state, issuer and PKCE remain mandatory.
+Native state reads are limited to 1 MiB and refuse linked/reparse/nonregular files before opening.
+Accepted root skill entrypoints are written as literal `SKILL.md` for Unix portability.
+
+Windows registration honors the selected Code profile and explicit target paths, validates both
+32 MiB-bounded client documents, stages private outputs and verifies read-back. Caught partial
+publication is compensated only while bytes remain operation-owned; concurrent/unknown writes
+retain recovery evidence. This is not power-loss/crash atomicity. See the [integration ledger](audit-supplement-2026-10-12.md)
+for original findings, regression mapping, exact validation requirements and remaining limits.
+
 ## Diagnostic and cleanup extensions (2.1)
 
 Local `doctor`, `network-check` and preview/apply `cleanup` supplement the native CLI without altering

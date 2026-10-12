@@ -7,6 +7,7 @@ pub mod management;
 pub mod network;
 pub mod proxy_import;
 pub mod skill_files;
+pub mod storage;
 
 pub fn project_root() -> anyhow::Result<std::path::PathBuf> {
     let executable = std::env::current_exe()?;

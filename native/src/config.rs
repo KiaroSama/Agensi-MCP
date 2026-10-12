@@ -164,17 +164,18 @@ pub fn validate(config: &Config) -> Result<()> {
 /// Load schema 1 settings without logging or discarding unknown JSON fields.
 pub fn load(root: &Path) -> Result<Config> {
     let path = root.join("config.local.json");
-    reject_linked_ancestors(&path)?;
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(initial()),
-        Err(_) => bail!("Cannot read route settings."),
+    let Some(bytes) = crate::storage::read_optional(&path)? else {
+        return Ok(initial());
     };
     from_bytes(&bytes)
 }
 
 /// Validate settings from one captured read, so route and change detection share an identity.
 pub fn from_bytes(bytes: &[u8]) -> Result<Config> {
+    ensure!(
+        bytes.len() <= crate::storage::MAX_JSON_BYTES,
+        "Route settings exceed 1 MiB limit."
+    );
     let text = std::str::from_utf8(bytes)
         .map_err(|_| anyhow!("Route settings are not valid JSON; connection blocked."))?;
     let mut value: Value = serde_json::from_str(text)
@@ -233,7 +234,7 @@ pub(crate) fn lock(root: &Path) -> Result<File> {
     reject_linked_ancestors(root)?;
     fs::create_dir_all(root).map_err(|_| anyhow!("Cannot create local settings directory."))?;
     let path = root.join(".management.lock");
-    reject_linked_ancestors(&path)?;
+    crate::storage::check_file(&path)?;
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -268,6 +269,10 @@ pub(crate) fn save_unlocked(root: &Path, config: &Config) -> Result<()> {
     let mut bytes = serde_json::to_vec_pretty(config)
         .map_err(|_| anyhow!("Cannot serialize route settings."))?;
     bytes.push(b'\n');
+    ensure!(
+        bytes.len() <= crate::storage::MAX_JSON_BYTES,
+        "Route settings exceed 1 MiB limit."
+    );
     temporary
         .write_all(&bytes)
         .and_then(|()| temporary.as_file().sync_all())

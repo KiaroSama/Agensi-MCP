@@ -136,6 +136,12 @@ The Windows menu provides these setup actions:
 
 Main menu shows only connection/selection/count; saved profiles appear in selection submenu. `exit`
 quits. A registration conflict is refused; review existing settings rather than silently replacing them.
+Registration honors explicit targets and `CLAUDE_CONFIG_DIR` for Code's `.claude.json`; it validates
+both UTF-8 object-shaped documents before mutation (32 MiB per client config, distinct from the
+native 1 MiB state limit). Same-directory private staging, cooperative locks and exact-byte read-back
+prevent silent partial success. A later failure restores only unchanged operation-written targets;
+concurrent edits remain untouched and unresolved original bytes stay in protected recovery files.
+This is not crash/power-loss atomicity; empty lock files are coordination metadata, not cleanup trash.
 To explicitly upgrade only this project's old Node/native Agensi entry (other servers are preserved):
 
 ```bash
@@ -245,7 +251,11 @@ cannot contain colons. Proxy passwords never belong in public source or chat.
 ```
 
 Current official SDK handles discovery/scopes/PKCE/state/issuer/token refresh. Human opens the genuine
-full URL; no automatic browser. Five-minute callback budget and stable local callback identity. Safe
+full URL; no automatic browser. Five-minute callback budget and stable local callback identity.
+Callback requests require exactly one `Host: 127.0.0.1:<callback-port>` in both HTTP/1.0 and HTTP/1.1,
+GET on the fixed callback path, complete bounded headers and no body framing. Malformed/idle peers
+are rejected without ending the remaining sign-in window. Host hardening does not replace state,
+issuer or PKCE checks and is not proof that arbitrary local programs are authenticated. Safe
 issuer/scope/expiry-compatible public-client legacy sessions can be imported without extending receipt
 time; original data is preserved. Incompatible caches require human renewed login, not weakened checks.
 Stored credentials are project-local, not encrypted vault storage; restrict directory access.
@@ -385,7 +395,8 @@ conversion, revenue or causality. No private/acquired marketplace instructions r
 
 ## Logging
 
-New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>.log`. Entries:
+New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>_<uuid>.log`. Registration
+and bounded CI checks use unique `logs/register_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log` files. Entries:
 `[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [COMPONENT] Message`. Safe startup/failure/shutdown metadata only;
 no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses stderr. Vendor debug
 logging stays disabled because third-party protocol logs may expose credential bytes. Retention manual;
@@ -473,7 +484,14 @@ native entry/menu and public-package checks. Version2.1 adds sanitized diagnosti
 captured-route consistency, cleanup preview/apply preservation, exclusive/shared runtime leases,
 linked-path refusal and truthful partial-deletion checks. Release jobs additionally verify extracted
 archives, executable bytes, startup and SHA256 checksums before publishing four platform downloads.
-Testcases have local deadlines; jobs have outer time budgets and constrained compile/test concurrency.
+The Linux independent synthetic black-box suite executes all 98 required cases, including positive
+SOCKS4 USERID sign-in, route revocation, malformed/fragmented callbacks and protected local state.
+Windows executes both isolated registration suites; release preflight rejects a label that differs
+from the package version. RustSec checks the full lockfile independently of the optional GitHub
+Dependency Graph capability. CI tests run through `scripts/run-check.py` with explicit wall/idle
+bounds, captured UTF-8 output, exit-code propagation and owned-tree termination. Cases have local
+deadlines; jobs have outer budgets and constrained compile/test concurrency. These synthetic checks
+do not certify real account/browser or all four native client GUI integrations.
 No tests purchase, publish or contact Agensi. Source parity and known limitations:
 [Migration contracts](docs/migration-contracts.md). Positive custom-CA HTTPS-proxy parity and full
 native four-client loading remain separate unverified scenarios; live read-only probe alone is not all

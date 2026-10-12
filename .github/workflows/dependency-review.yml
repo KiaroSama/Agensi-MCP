@@ -1,16 +1,35 @@
 name: Dependency review
-on: pull_request
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '11 6 * * 1'
 permissions:
   contents: read
 jobs:
   review:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     env:
       CARGO_HOME: ${{ github.workspace }}/.cache/cargo
+      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Verify locked dependency graph
         run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Mandatory RustSec lockfile audit
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/audit-dependencies.ps1
+      # The account's Dependency Graph is disabled. RustSec above remains mandatory.
+      # Enable this additional GitHub-specific diff only after enabling that capability.
+      - name: Additional GitHub dependency diff
+        if: github.event_name == 'pull_request' && vars.ENABLE_GITHUB_DEPENDENCY_REVIEW == 'true'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: never
+          show-openssf-scorecard: false

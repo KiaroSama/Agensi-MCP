@@ -66,7 +66,11 @@ pub fn save_skill(root: &Path, name: &str, files: &[InlineFile]) -> Result<PathB
     let mut paths = Vec::with_capacity(files.len());
     let mut bytes = 0usize;
     for entry in files {
-        let parts: Vec<&str> = entry.path.split(['/', '\\']).collect();
+        let mut parts: Vec<&str> = entry.path.split(['/', '\\']).collect();
+        // Skill discovery is case-sensitive on Unix; keep the required entrypoint portable.
+        if parts.len() == 1 && parts[0].eq_ignore_ascii_case("SKILL.md") {
+            parts[0] = "SKILL.md";
+        }
         ensure!(
             parts.iter().all(|part| safe_component(part)),
             "Unsafe skill file path refused."

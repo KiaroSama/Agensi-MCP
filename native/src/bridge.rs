@@ -9,11 +9,10 @@ use std::{path::Path, time::Duration};
 
 pub async fn run(root: &Path) -> Result<()> {
     let settings = root.join("config.local.json");
-    let snapshot =
-        std::fs::read(&settings).map_err(|_| anyhow::anyhow!("Cannot read selected route."))?;
-    let cfg = config::load(root)?;
+    let snapshot = crate::storage::snapshot(root)?;
+    let cfg = config::from_bytes(&snapshot)?;
     let http = network::client(&cfg)?;
-    let manager = auth::authenticated(root, http.clone()).await?;
+    let manager = auth::authenticated(root, http.clone(), snapshot.clone()).await?;
     let upstream = StreamableHttpClientTransport::with_client(
         AuthClient::new(http.http.clone(), manager),
         StreamableHttpClientTransportConfig::with_uri(auth::ENDPOINT)
@@ -38,7 +37,7 @@ where
     let result = loop {
         tokio::select! {
             _ = watcher.tick() => {
-                if std::fs::read(&settings).unwrap_or_default() != snapshot { break Err(anyhow::anyhow!("Route changed; reconnect Agensi.")); }
+                if !crate::storage::matches(&settings, &snapshot) { break Err(anyhow::anyhow!("Route changed; reconnect Agensi.")); }
             }
             _ = tokio::signal::ctrl_c() => break Ok(()),
             value = pending.next(), if !pending.is_empty() => {
@@ -46,11 +45,13 @@ where
             }
             message = downstream.receive() => {
                 let Some(message) = message else { break Ok(()); };
+                if !crate::storage::matches(&settings, &snapshot) { break Err(anyhow::anyhow!("Route changed; reconnect Agensi.")); }
                 if pending.len() >= 64 { break Err(anyhow::anyhow!("Pending request limit reached; no replay.")); }
                 pending.push(upstream.send(message).map(|r| r.map_err(|_| anyhow::anyhow!("Upstream request failed; no replay or direct fallback."))).boxed());
             }
             message = upstream.receive() => {
                 let Some(message) = message else { break Err(anyhow::anyhow!("Upstream connection closed.")); };
+                if !crate::storage::matches(&settings, &snapshot) { break Err(anyhow::anyhow!("Route changed; reconnect Agensi.")); }
                 if pending.len() >= 64 { break Err(anyhow::anyhow!("Pending output limit reached; reconnect.")); }
                 pending.push(downstream.send(message).map(|r| r.map_err(|_| anyhow::anyhow!("Client output closed."))).boxed());
             }
@@ -64,43 +65,47 @@ where
 
 pub async fn probe(root: &Path) -> Result<serde_json::Value> {
     use rmcp::{ServiceExt, model::ClientConfig};
-    let cfg = config::load(root)?;
+    let snapshot = crate::storage::snapshot(root)?;
+    let cfg = config::from_bytes(&snapshot)?;
     let http = network::client(&cfg)?;
-    let manager = auth::authenticated(root, http.clone()).await?;
+    let manager = auth::authenticated(root, http.clone(), snapshot.clone()).await?;
     let transport = StreamableHttpClientTransport::with_client(
         AuthClient::new(http.http.clone(), manager),
         StreamableHttpClientTransportConfig::with_uri(auth::ENDPOINT)
             .reinit_on_expired_session(false),
     );
-    let service = tokio::time::timeout(
-        Duration::from_secs(20),
-        ClientConfig::default().serve(transport),
-    )
+    network::watch_route(&root.join("config.local.json"), &snapshot, async {
+        let service = tokio::time::timeout(
+            Duration::from_secs(20),
+            ClientConfig::default().serve(transport),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Discovery timed out."))?
+        .map_err(|_| anyhow::anyhow!("Discovery failed."))?;
+        let tools = tokio::time::timeout(
+            Duration::from_secs(15),
+            service.list_tools(Default::default()),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Tool listing timed out."))?
+        .map_err(|_| anyhow::anyhow!("Tool listing failed."))?;
+        let count = tools.tools.len();
+        let credit = tokio::time::timeout(
+            Duration::from_secs(15),
+            service.call_tool(rmcp::model::CallToolRequestParams::new("my_credits")),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Account read timed out."))?
+        .map_err(|_| anyhow::anyhow!("Account read failed."))?;
+        let account = credit.is_error != Some(true);
+        let _ = tokio::time::timeout(Duration::from_secs(5), service.cancel()).await;
+        if !account {
+            bail!("Account service returned an error; authentication not claimed.");
+        }
+        if count == 0 {
+            bail!("Upstream returned no tools.");
+        }
+        Ok(serde_json::json!({"connected":true,"tools":count,"account_read":account}))
+    })
     .await
-    .map_err(|_| anyhow::anyhow!("Discovery timed out."))?
-    .map_err(|_| anyhow::anyhow!("Discovery failed."))?;
-    let tools = tokio::time::timeout(
-        Duration::from_secs(15),
-        service.list_tools(Default::default()),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Tool listing timed out."))?
-    .map_err(|_| anyhow::anyhow!("Tool listing failed."))?;
-    let count = tools.tools.len();
-    let credit = tokio::time::timeout(
-        Duration::from_secs(15),
-        service.call_tool(rmcp::model::CallToolRequestParams::new("my_credits")),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Account read timed out."))?
-    .map_err(|_| anyhow::anyhow!("Account read failed."))?;
-    let account = credit.is_error != Some(true);
-    let _ = service.cancel().await;
-    if !account {
-        bail!("Account service returned an error; authentication not claimed.");
-    }
-    if count == 0 {
-        bail!("Upstream returned no tools.");
-    }
-    Ok(serde_json::json!({"connected":true,"tools":count,"account_read":account}))
 }

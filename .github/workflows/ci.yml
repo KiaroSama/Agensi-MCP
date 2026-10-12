@@ -12,7 +12,26 @@ on:
 permissions:
   contents: read
 jobs:
+  release-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release identity guard
+        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 scripts/test-release.py
+      - name: Verify bounded process ownership
+        run: python scripts/test-check-runner.py
+      - name: Validate package and requested release identity
+        id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 scripts/check-release.py
   native:
+    needs: release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -52,11 +71,13 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Formatting
+        id: formatting
+        continue-on-error: true
         run: cargo +1.99.0 fmt --all --check
       - name: Static checks
         run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings
-      - name: Build native executable
-        run: cargo +1.99.0 build --locked
+      - name: Build native executable and test targets
+        run: cargo +1.99.0 build --locked --all-targets
       - name: Prepare Windows launcher executable
         if: runner.os == 'Windows'
         run: |
@@ -69,15 +90,39 @@ jobs:
           Copy-Item target/debug/agensi-mcp bin/agensi-mcp
           chmod +x bin/agensi-mcp
           bash run.sh status
+      - name: Verify owned runner on the native platform
+        run: python scripts/run-check.py --wall 30 --idle 15 -- python scripts/test-check-runner.py
       - name: Isolated registration upgrade and preservation tests
         if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File scripts/test-registration.ps1
+        run: |
+          python scripts/run-check.py --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/run-check.py --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration-storage.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
-        run: cargo +1.99.0 test --locked --all-targets -- --test-threads=2
+        run: |
+          New-Item .tmp -ItemType Directory -Force | Out-Null
+          python scripts/run-check.py --wall 180 --idle 45 -- cargo +1.99.0 test --locked --all-targets -- --test-threads=2 2>&1 | Tee-Object -FilePath .tmp/ci-native-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Documentation tests
-        run: cargo +1.99.0 test --locked --doc
+        run: python scripts/run-check.py --wall 60 --idle 30 -- cargo +1.99.0 test --locked --doc
+      - name: Black-box OAuth, revocation, filesystem and management regressions
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: python scripts/run-check.py --wall 120 --idle 20 -- python3 tests/audit/audit_regressions.py --source-root . --output .tmp/audit-results.json
+      - name: Retain sanitized black-box results
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-regressions-linux
+          path: .tmp/audit-results.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Public package and sensitive-pattern check
         run: pwsh -NoProfile -File scripts/check-publication.ps1
+      - name: Enforce formatting result
+        if: always() && steps.formatting.outcome != 'success'
+        run: exit 1
       - name: Build optimized downloadable executable
         if: github.event_name == 'workflow_dispatch'
         run: cargo +1.99.0 build --locked --release
@@ -92,9 +137,20 @@ jobs:
             dist/agensi-mcp-${{ matrix.platform }}.*
           if-no-files-found: error
           retention-days: 30
+      - name: Collect Linux validation evidence
+        if: always() && runner.os == 'Linux'
+        run: pwsh -NoProfile -File scripts/collect-ci-evidence.ps1
+      - name: Retain Linux validation evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-validation-evidence
+          path: .tmp/ci-review/
+          if-no-files-found: error
+          retention-days: 7
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
-    needs: native
+    needs: [native, release-preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

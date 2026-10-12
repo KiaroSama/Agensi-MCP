@@ -11,11 +11,11 @@ use tokio::{
 };
 use url::Url;
 
-#[tokio::test]
-async fn official_oauth_pkce_callback_saves_reusable_session() {
-    timeout(Duration::from_secs(8), async {
+async fn oauth_roundtrip(noisy: bool) {
+    timeout(Duration::from_secs(if noisy { 12 } else { 8 }), async {
         let root = tempfile::tempdir().expect("root");
-        let settings = root.path().join("config.local.json");
+        let root_path = root.path().canonicalize().expect("canonical fixture root");
+        let settings = root_path.join("config.local.json");
         std::fs::write(&settings, b"{}").expect("snapshot");
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("AS port");
         let base = format!("http://{}",listener.local_addr().expect("AS address"));
@@ -35,9 +35,11 @@ async fn official_oauth_pkce_callback_saves_reusable_session() {
                 Json(json!({"access_token":"fixture-access","token_type":"Bearer","expires_in":3600,"refresh_token":"fixture-refresh","scope":"read install"}))
             }));
         let server = tokio::spawn(async move { axum::serve(listener,app).await.expect("AS serve"); });
-        let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).build().expect("fixture client");
+        let mut config = agensi_mcp::config::initial();
+        config.mode = agensi_mcp::config::Mode::Direct;
+        let client = agensi_mcp::network::client(&config).expect("fixture client");
         let mut manager = AuthorizationManager::new_with_oauth_http_client(format!("{base}/mcp"),Arc::new(OAuthHttp {client,settings,snapshot:b"{}".to_vec()})).await.expect("manager");
-        let store=FileCredentials::new(root.path());manager.set_credential_store(store.clone());
+        let store=FileCredentials::new(&root_path);manager.set_credential_store(store.clone());
         let callback=TcpListener::bind("127.0.0.1:0").await.expect("callback");let port=callback.local_addr().expect("callback port").port();
         let mut state=OAuthState::Unauthorized(manager);
         state.start_authorization(AuthorizationRequest::new(format!("http://127.0.0.1:{port}/oauth/callback")).with_client_name("Fixture")).await.expect("start");
@@ -46,11 +48,46 @@ async fn official_oauth_pkce_callback_saves_reusable_session() {
         assert!(link.query_pairs().any(|(k,v)|k=="code_challenge_method" && v=="S256"));
         let mut received=Url::parse(&format!("http://127.0.0.1:{port}/oauth/callback")).expect("callback URL");
         received.query_pairs_mut().append_pair("state",&expected).append_pair("code","fixture-code").append_pair("iss",&base);
-        let request=tokio::spawn(async move {reqwest::Client::builder().no_proxy().build().expect("callbackclient").get(received).send().await.expect("callbacksend")});
+        let request=tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            if noisy {
+                let mut idle = tokio::net::TcpStream::connect(("127.0.0.1",port)).await.unwrap();
+                let mut rejected = Vec::new();
+                idle.read_to_end(&mut rejected).await.unwrap();
+                assert!(rejected.starts_with(b"HTTP/1.1 400"));
+                for invalid in [b"\xff\r\n\r\n".as_slice(), b"POST /oauth/callback HTTP/1.1\r\n\r\n".as_slice(), b"GET /unrelated HTTP/1.1\r\n\r\n".as_slice()] {
+                    let mut socket = tokio::net::TcpStream::connect(("127.0.0.1",port)).await.unwrap();
+                    socket.write_all(invalid).await.unwrap();
+                    let mut reply=Vec::new(); socket.read_to_end(&mut reply).await.unwrap();
+                    assert!(reply.starts_with(b"HTTP/1.1 400"));
+                }
+                let mut socket = tokio::net::TcpStream::connect(("127.0.0.1",port)).await.unwrap();
+                let target = format!("{}?{}", received.path(), received.query().unwrap());
+                let request = format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+                socket.write_all(&request.as_bytes()[..12]).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                socket.write_all(&request.as_bytes()[12..]).await.unwrap();
+                let mut reply=Vec::new(); socket.read_to_end(&mut reply).await.unwrap();
+                assert!(reply.starts_with(b"HTTP/1.1 200"));
+            } else {
+                let response=reqwest::Client::builder().no_proxy().build().expect("callbackclient").get(received).send().await.expect("callbacksend");
+                assert!(response.status().is_success());
+            }
+        });
         complete_authorization(&callback,port,&mut state,&expected).await.expect("complete");
-        assert!(request.await.expect("callbacktask").status().is_success());
+        request.await.expect("callbacktask");
         let saved=store.load().await.expect("saved").expect("session");
         assert_eq!(saved.client_id,"fixture-client");assert_eq!(saved.issuer.as_deref(),Some(base.as_str()));assert!(saved.token_received_at.is_some());
         server.abort();let _=server.await;
     }).await.expect("OAuth case deadline");
+}
+
+#[tokio::test]
+async fn official_oauth_pkce_callback_saves_reusable_session() {
+    oauth_roundtrip(false).await;
+}
+
+#[tokio::test]
+async fn malformed_peers_and_fragmented_callback_do_not_abort_signin() {
+    oauth_roundtrip(true).await;
 }
