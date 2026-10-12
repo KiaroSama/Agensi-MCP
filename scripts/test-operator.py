@@ -19,12 +19,17 @@ class OperatorContracts(unittest.TestCase):
         self.assertIn('Fetch `get_skill` again for every requested use', self.flow)
         self.assertIn('Never save acquired instructions', self.flow)
         self.assertNotIn('Install free or owned one-time files', self.flow)
+        for case in ('Use an owned skill again', 'Buy an unowned $3', 'Buy an $8', 'Add credit, amount missing', 'Post a review, rating missing', 'Save acquired content or try old free allowance'):
+            self.assertIn(case, self.flow)
 
     def test_exact_payment_and_topup_consent(self):
         for phrase in ('exact slug, current price and payment route', 'buy_credits', '5 to 1000', 'No amount or approval: stop'):
             self.assertIn(phrase, self.flow)
         self.assertIn('$3 one-time skill: credit only', self.flow)
         self.assertIn('$8 one-time skill: card or credit', self.flow)
+        self.assertIn('Ask for specific approval before', self.flow)
+        self.assertIn('No `confirm=true` before specific approval', self.flow)
+        self.assertIn('credits cannot buy subscription skills', self.flow)
 
     def test_rating_is_the_users_decision(self):
         for phrase in ('review_skill', "user's own rating", '1 to 5', 'Never invent or suggest a rating'):

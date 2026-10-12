@@ -48,3 +48,18 @@ This internal guide is not a listing. For an original product the user explicitl
 5. Verify review/live status using `my_skills`. Submission is not approval or publication. `update_skill` uploads a full new package for review; media changes and `submit_skill_request` are separate outward actions requiring approval.
 
 Refunds, subscription exceptions, single-agent authentication and host-persistence limits live in [policies.md](policies.md). Preserve the selected proxy and reconcile unknown spend/upload outcomes; never silently reconnect another agent, switch to direct or infer new privileges.
+
+## Six decision examples
+
+These are documentary acceptance examples, not observed agent execution.
+
+| Request/state | Decision | Required boundary |
+|---|---|---|
+| Use an owned skill again | Fetch latest `get_skill` for this use | No new purchase; no acquired file save |
+| Buy an unowned $3 one-time skill, no approval yet | Stop and ask for exact $3 credit approval | No `confirm=true` before specific approval |
+| Buy an $8 one-time skill, payment route unspecified | Ask card or credit, then approve current offer | No silent route selection or payment |
+| Add credit, amount missing or below $5 | Stop and ask for a valid chosen amount | No `buy_credits` or checkout until amount approval |
+| Post a review, rating missing | Stop and ask for the user's rating | No fabricated stars/text; optional text only in their words |
+| Save acquired content or try old free allowance | Refuse persistence/trial fallback; offer fresh entitled use | No acquired files, `my_free_runs` or trial `run_skill` |
+
+Subscription control: credits cannot buy subscription skills; verify active card-billed entitlement and approved input before server-side use.
