@@ -74,19 +74,19 @@ Use gates rather than a made-up commercial score:
 - **Narrow/revise:** pain is plausible but too broad, differentiator vague or output only a plan; validate one subjob before broadening.
 - **Stop/defer:** no actual buyer/task, no advantage over free/simple prompting, unavailable data/tools, unacceptable risk, unverifiable compliance or cost beyond plausible value.
 
-Research approval covers analysis only. Buyer outreach, trials, spending, pilots, publication and product creation beyond the requested internal guide require their own approval. Suggest the test; do not perform an external action silently.
+Research approval covers analysis only. Buyer outreach, evaluations, spending, pilots, publication and product creation beyond the requested internal guide require their own approval. Suggest the test; do not perform an external action silently.
 
 ## Pricing and delivery model
 
 Choose model from what the buyer receives, not content-protection convenience:
 
 - **Free:** a complete bounded diagnostic/sample that solves its promised job. Make limits honest; do not label a broken teaser useful. Free uptake does not establish a converting funnel.
-- **One-time:** a reusable local workflow, templates/scripts/references or output contract with stable value. Clarify update/support/version scope and license. Check current minimum/offer rather than outdated creator articles.
+- **One-time:** reusable agent-delivered access to a workflow/output contract with stable value; not downloadable buyer files. Clarify update/support/version scope and license. Check current minimum/offer rather than outdated creator articles.
 - **Subscription:** credible ongoing value (maintained current data/service, repeat hosted work or continuous updates), not simply a static prompt behind monthly payment. Agensi's skill subscriptions are cloud-only; validate privacy/capabilities/cost before recommending this delivery.
 
 Set a **price hypothesis**, not an optimum: compare comparable current offers and incremental value; factor setup, external API charges, support and refund risk. Use actual buyer/transaction tests for willingness to pay. No public install×price×commission revenue estimate. A service/API connector advertised as a free skill can still have significant run costs.
 
-Older creator pricing advice conflicts with current minimum/bundle Terms; current offer and [policies.md](policies.md) control. Never copy a historical $3 entry recommendation into a platform whose current paid minimum is $5.
+Older creator pricing advice conflicts with current minimum/bundle Terms; current offer and [policies.md](policies.md) control. The October12 paid minimum is $1; below$5 uses credits only. Historic $5-minimum advice is superseded.
 
 ## Worked opportunity brief — internal example, not a product submission
 

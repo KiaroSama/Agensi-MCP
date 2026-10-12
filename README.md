@@ -272,10 +272,32 @@ Public connectivity, account read, creator/payout readiness and submitted/approv
 separate evidence layers. Read-only `probe` lists tools and checks an account-scoped response; it does
 not buy, upload or verify creator eligibility. Never paste tokens/codes/callback URLs in chat.
 
-## Inline skill files
+## Agent-only Agensi skills
 
-After specific approved free/owned one-time install, save returned path/content array or `files` object
-as local JSON, then:
+Agensi's October12,2026 model loads the latest approved skill through your agent for each use;
+buyers no longer download or install acquired instructions. Search, inspect the offer, approve any
+purchase, then fetch `get_skill` for the requested use and follow the content in-session. Do not save
+acquired instructions to local skill directories, caches, logs or exports. Existing local files are
+not deleted by this update. This is not a guarantee that your client/provider never persists chat.
+
+Credits now represent dollars (1 credit = $1), one-off top-ups start at $5 and expire after12months.
+One-time skills under$5 require credits; those at$5 or above support card or credit. The agent asks
+before buying. `buy_credits` returns a checkout link for a user-chosen amount; it never charges itself.
+`review_skill` posts only the user's explicit rating and words. The old free-run allowance and
+Starter/Pro credit plans are retired; individual monthly subscription skills remain a separate
+card-billed/server-side Terms exception. One connected agent at a time: another sign-in disconnects
+the previous agent. Some live tool descriptions still advertise old trial/file-update behavior;
+that metadata does not override current licensing or approval requirements.
+
+Current [operator workflow](skills/agensi-operator/references/tools-and-workflows.md) and
+[policy guidance](skills/agensi-operator/references/policies.md) cover approval, refunds, rights,
+creator70%share/$1minimum, subscription exceptions and remaining provider inconsistencies.
+The original local `agensi-operator` plugin is our guidance, not acquired marketplace content.
+
+## Original local skill files
+
+The manual helper accepts **original or independently authorized content**,
+**not for acquired Agensi instructions**. For a permitted local path/content array or `files` object:
 
 ```bash
 ./bin/agensi-mcp.exe save-skill example ./returned-files.json
@@ -283,8 +305,9 @@ as local JSON, then:
 
 Exact UTF-8, root SKILL.md, max500files/20MiB; traversal, ADS/device/linked ancestors, case duplicates
 and existing packages refused. Staging/atomic rename preserves originals. No script execution or global
-activation. Cloud-only subscriptions stay cloud-only; cost/data/trial/install/creator actions need
-separate scope/approval. Submission preview itself transfers files externally.
+activation. The helper does not infer a licence from a JSON input; the caller verifies rights first.
+Marketplace content uses the agent-only flow above. Cost/data/creator actions need separate approval;
+submission preview itself transfers files externally.
 
 ## Operator guidance
 

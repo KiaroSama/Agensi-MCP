@@ -1,6 +1,6 @@
 # Find and Select a Skill That Actually Fits
 
-Use for choosing an existing Agensi offer. For market/product opportunities read [market-demand.md](market-demand.md); for improving a draft read [skill-optimization.md](skill-optimization.md). Money/cloud/install operations use [tools-and-workflows.md](tools-and-workflows.md).
+Use for choosing an existing Agensi offer. For market/product opportunities read [market-demand.md](market-demand.md); for improving a draft read [skill-optimization.md](skill-optimization.md). Money/in-session-use operations use [tools-and-workflows.md](tools-and-workflows.md).
 
 ## 1. Turn the request into a search contract
 
@@ -22,7 +22,7 @@ Use the live `search_skills` schema, public terms only:
 
 Start relevance-ranked; compare free and paid candidates rather than rank solely by installs. Add popular/recent/request-board views only when demand is part of the question. If no hits, try one synonym/related category and inspect exact boundaries; avoid endless searches or installing unrelated offers.
 
-Deduplicate by slug. For a normal selection, a few distinct alternatives are enough; broad research records query/date/page/call budgets and stopping reason. Overlapping pages, capped portfolios and MCP-opted-out web listings mean coverage is partial. `updated_at` alone does not prove maintained code; `get_popular(month)` plus cumulative counters does not establish monthly growth.
+Deduplicate by slug. For a normal selection, a few distinct alternatives are enough; broad research records query/date/page/call budgets and stopping reason. Overlapping pages, capped portfolios and historical opt-out metadata mean coverage is partial. `updated_at` alone does not prove maintained code; `get_popular(month)` plus cumulative counters does not establish monthly growth.
 
 **Done:** a small shortlist or an evidence-backed "no demonstrated match." No commercial action yet.
 
@@ -41,9 +41,9 @@ Name critical blockers, not a numeric "quality score": wrong format/language, un
 ## 4. Prove the selected advantage at the cheapest valid tier
 
 - If the free/basic alternative meets the contract, recommend it; don't create a paid need.
-- If paid instructions are hidden, recommend at most a conditional purchase/trial, stating what remains untested. No unlocking as research.
+- If paid instructions are hidden, recommend at most a approval-dependent purchase, stating what remains untested. No unlocking as research.
 - If inspection alone settles fit, stop. If output quality needs testing, define one actual/sanitized representative input, expected deliverable and meaningful error case before asking for run approval.
-- For cloud: establish capability, destination/privacy, trial/cost and exact data approval. For local: inspect files/scripts/permissions and supported loader before installation or execution.
+- For cloud: establish capability, destination/privacy, cost and exact data approval. For host execution: inspect loaded instructions/scripts and permissions; keep acquired content in-session rather than installing it.
 
 Inspect produced output directly: rows/facts/units/citations, generated files/imports, rendered visual results or preserved meaning as appropriate. A successful API response or tool listing is not acceptance. If a run is blocked, describe the missing tool/input/service and remaining uncertainty, not a hollow example.
 
@@ -53,7 +53,7 @@ Inspect produced output directly: rows/facts/units/citations, generated files/im
 
 Recommend one candidate, not a popularity directory. Suggested output:
 
-> **Decision:** use existing/free / conditional paid trial / narrow custom workflow / no fit.
+> **Decision:** use existing/free / approval-dependent paid use / narrow custom workflow / no fit.
 > **Why:** decisive task-output advantage.
 > **Evidence:** current source/date and listing/instruction/runtime depth.
 > **Friction:** prerequisites, data destination, external costs and rights.

@@ -23,6 +23,8 @@ jobs:
           persist-credentials: false
       - name: Test release identity guard
         run: python scripts/run-check.py --wall 30 --idle 15 -- python3 scripts/test-release.py
+      - name: Verify agent-only operator contracts
+        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 -X utf8 scripts/test-operator.py
       - name: Verify bounded process ownership
         run: python scripts/test-check-runner.py
       - name: Validate package and requested release identity

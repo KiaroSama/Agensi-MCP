@@ -51,7 +51,7 @@ Use isolated environments and separate writable outputs. Do not let one run's ge
 
 Record task success, critical errors, human correction/review time, elapsed time, model/API cost, setup burden and repeat variability. Cost per accepted result is more useful than tokens per attempt. Repeat where nondeterminism changes conclusions; a lucky success does not mean reliable repeated success. No universal passing percentage is a commercial guarantee.
 
-**Execution gate:** approved representative input and data destination; valid runner; bounded resource/process cleanup; actual host/model capability; spending/trial ceiling. This guide does not approve billable model calls/cloud trials. If unavailable, do a labeled offline walkthrough and report that effectiveness remains untested.
+**Execution gate:** approved representative input and data destination; valid runner; bounded resource/process cleanup; actual host/model capability; spending ceiling. This guide does not approve billable model calls or restore the retired Agensi trial allowance. If unavailable, do a labeled offline walkthrough and report that effectiveness remains untested.
 
 ## 4. Fix the observed failure, not everything
 
