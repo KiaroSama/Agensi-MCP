@@ -90,8 +90,18 @@ are joined. Native and script CI commands have explicit wall/idle ownership thro
 `scripts/run-check.py`. No performance improvement is claimed without comparable measurements.
 
 Current official registry evidence selected serde_json 1.0.154 (compatible patch, MSRV 1.71);
-other direct/development pins remained current. The final changed/reconstructed commit still
-requires its own hosted checks; historical PR4/PR5 green runs are baseline evidence only.
+other direct/development pins remained current. Final integrated source commit
+`240bae17c620d7c15526a5f4d424cbf9578e3a4d` passed hosted
+[CI](https://github.com/KiaroSama/Agensi-MCP/actions/runs/38239696243),
+[RustSec](https://github.com/KiaroSama/Agensi-MCP/actions/runs/38239696266) and
+[CodeQL](https://github.com/KiaroSama/Agensi-MCP/actions/runs/38239696268).
+All four native platforms passed; Linux executed 78 native tests and all 98 independent cases
+with zero failures or ignored cases. Both isolated Windows registration suites passed.
+An initial Intel runner hit the execution ceiling while compiling test targets; compiling all
+native targets before bounded execution fixed the cause without increasing that ceiling.
+Both review PRs are merged and their branches removed. Owner commit identity reconstruction
+preserved content trees and topology; legitimate GitHub bot attribution remains unchanged.
+These results verify source integration, not a newly released or installed binary.
 
 | Finding | Retained or completed implementation | Acceptance evidence required |
 |---|---|---|
@@ -107,7 +117,7 @@ requires its own hosted checks; historical PR4/PR5 green runs are baseline evide
 
 ## Primary references
 
-- Existing PR and original implemented runtime audit: https://github.com/KiaroSama/Agensi-MCP/pull/4 and https://github.com/KiaroSama/Agensi-MCP/blob/audit/2026-10-12-runtime-invariants/docs/runtime-audit-2026-10-12.md
+- Existing PR and original implemented runtime audit: https://github.com/KiaroSama/Agensi-MCP/pull/4 and https://github.com/KiaroSama/Agensi-MCP/blob/240bae17c620d7c15526a5f4d424cbf9578e3a4d/docs/runtime-audit-2026-10-12.md
 - Claude profile/user configuration: https://code.claude.com/docs/en/mcp-quickstart and https://code.claude.com/docs/en/settings
 - HTTP/1.1 authority/framing: https://www.rfc-editor.org/rfc/rfc9112.html
 - OAuth/state semantics: https://www.rfc-editor.org/rfc/rfc6749.html
