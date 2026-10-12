@@ -5,7 +5,6 @@ No user configuration is read; all project roots, sessions and CA keys are dispo
 """
 from __future__ import annotations
 import argparse
-import contextlib
 import datetime
 import hashlib
 import http.client
@@ -13,7 +12,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import queue
 import shutil
 import socket
 import subprocess
@@ -25,6 +23,7 @@ from mock_upstream import LocalFixture, make_certificates
 
 LOG = logging.getLogger('audit')
 RESULTS = []
+CERTIFICATES = None
 SOURCE = Path(__file__).resolve().parents[2]
 WORK = SOURCE / '.tmp' / 'audit-blackbox'
 
@@ -47,7 +46,8 @@ class Project:
         self.binary.chmod(0o700)
         for name in ('Cargo.toml', 'run.ps1'):
             shutil.copy2(SOURCE / name, self.root / name)
-        self.env = os.environ.copy()
+        self.env = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT", "WINDIR") if key in os.environ}
+        self.env["HOME"] = str(self.root)
         self.env.update({'RUST_BACKTRACE': '0', 'TEMP': str(self.root / '.tmp'),
                          'TMP': str(self.root / '.tmp'), 'TMPDIR': str(self.root / '.tmp')})
         (self.root / '.tmp').mkdir()
@@ -67,7 +67,10 @@ class Project:
         (self.root / 'config.local.json').write_text(json.dumps(value), encoding='utf-8')
     def route(self, protocol='http', user=False):
         if not self.fixture:
-            ca, ctx = make_certificates(self.root / 'fixture-tls')
+            global CERTIFICATES
+            if CERTIFICATES is None:
+                CERTIFICATES = make_certificates(WORK / 'fixture-tls')
+            ca, ctx = CERTIFICATES
             self.fixture = LocalFixture(ctx).start()
             self.env.update({'SSL_CERT_FILE': str(ca), 'SSL_CERT_DIR': str(ca.parent)})
         self.config({'schema': 1, 'mode': 'proxy', 'selected': 'fixture',
@@ -76,7 +79,7 @@ class Project:
     def run(self, *args, timeout=3, stdin=None):
         try:
             process = subprocess.run([str(self.binary), *map(str, args)], env=self.env,
-                                     cwd='/', input=stdin, text=True, capture_output=True, timeout=timeout)
+                                     cwd='/', input=stdin, text=True, encoding='utf-8', capture_output=True, timeout=timeout)
             try:
                 result = json.loads(process.stdout)
             except (ValueError, TypeError):
@@ -111,9 +114,10 @@ class NativeProcess:
         self.http_ready = threading.Event()
         self.query = None
         self.stderr_lines = []
+        self.finished = threading.Event()
         self.process = subprocess.Popen([str(project.binary), action], env=project.env, cwd='/',
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, text=True)
+                                        stderr=subprocess.PIPE, text=True, encoding='utf-8')
         self.reader = threading.Thread(target=self.consume, daemon=True)
         self.reader.start()
     def consume(self):
@@ -124,7 +128,9 @@ class NativeProcess:
                 continue
             if 'Local MCP HTTP listening' in line:
                 self.http_ready.set()
-            self.stderr_lines.append(line)
+            if len(self.stderr_lines) < 100:
+                self.stderr_lines.append(line)
+        self.finished.set()
     def path(self, extra='', wrong_state=False):
         assert self.query is not None, 'Synthetic authorization not ready'
         target = urllib.parse.urlsplit(self.query['redirect_uri'][0])
@@ -153,13 +159,15 @@ class NativeProcess:
             self.process.kill()
         self.process.wait(timeout=3)
         self.reader.join(timeout=2)
+        if self.reader.is_alive():
+            raise RuntimeError('Native stderr reader did not stop')
         for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
             if stream:
                 stream.close()
 
 
 def management_cases():
-    oracle = json.loads((SOURCE / 'tests/fixtures/migration.json').read_text())
+    oracle = json.loads((SOURCE / 'tests/fixtures/migration.json').read_text(encoding='utf-8'))
     for group in ('proxies', 'configs', 'lists'):
         for case in oracle[group]:
             with Project() as p:
@@ -185,7 +193,7 @@ def management_cases():
                 if passed and not error and group != 'lists':
                     passed = result['json'] == expected
                 if passed and not error and group == 'lists':
-                    saved = json.loads((p.root / 'config.local.json').read_text())
+                    saved = json.loads((p.root / 'config.local.json').read_text(encoding='utf-8'))
                     unique = {}
                     for entry in expected:
                         unique.setdefault(entry['name'].lower(), {'name': entry['name'], 'url': entry['url']})
@@ -194,7 +202,7 @@ def management_cases():
     for index, filename in enumerate(('SKILL.md', 'skill.md', 'Skill.md')):
         with Project() as p:
             source = p.root / 'synthetic-skill.json'
-            source.write_text(json.dumps([{'path': filename, 'content': '# Synthetic fixture'}]))
+            source.write_text(json.dumps([{'path': filename, 'content': '# Synthetic fixture'}]), encoding='utf-8')
             result = p.run('save-skill', 'case-' + str(index), source)
             target = p.root / 'skills' / ('case-' + str(index))
             # Accepted packages must contain the exact entry point on a case-sensitive filesystem.
@@ -205,7 +213,7 @@ def management_cases():
         p.config({'schema': 1, 'mode': 'disconnected', 'selected': None, 'profiles': [],
                   'future': {'keep': ['unicode-\u00e9', 17]}})
         result = p.run('direct')
-        saved = json.loads((p.root / 'config.local.json').read_text())
+        saved = json.loads((p.root / 'config.local.json').read_text(encoding='utf-8'))
         record('unknown-config-preserved', result['exit'] == 0 and saved['future'] == {'keep': ['unicode-\u00e9', 17]}, {'exit': result['exit']})
         before = (p.root / 'config.local.json').read_bytes()
         result = p.run('select', 'missing')
@@ -214,7 +222,7 @@ def management_cases():
     for path in ('../outside', '/absolute', 'C:\\escape', 'NUL.txt', 'nested/../escape'):
         with Project() as p:
             source = p.root / 'synthetic-skill.json'
-            source.write_text(json.dumps([{'path': 'SKILL.md', 'content': '# Fixture'}, {'path': path, 'content': 'fixture'}]))
+            source.write_text(json.dumps([{'path': 'SKILL.md', 'content': '# Fixture'}, {'path': path, 'content': 'fixture'}]), encoding='utf-8')
             result = p.run('save-skill', 'bad', source)
             record('skill-refuses-' + path, result['exit'] != 0 and not (p.root / 'skills/bad').exists(), {'exit': result['exit']})
 
@@ -242,7 +250,7 @@ def filesystem_cases():
                    {'timeout': result['timeout'], 'bound_seconds': 0.9,
                     'refused': refused}, 'F05')
     with Project() as p:
-        (p.root / 'logs').write_text('synthetic obstruction')
+        (p.root / 'logs').write_text('synthetic obstruction', encoding='utf-8')
         result = p.run('status')
         text = result.get('stderr', '')
         record('stderr-logging-fallback-events', result['exit'] == 0 and '[INFO]' in text and 'startup' in text and 'shutdown' in text,
@@ -271,7 +279,7 @@ def filesystem_cases():
         (p.root / '.state/auth').mkdir(parents=True)
         outside = p.root / 'outside-session.json'
         outside.write_text(json.dumps({'client_id': 'synthetic-client', 'token_response': None,
-                                       'requested_scopes': [], 'token_received_at': None, 'issuer': None}))
+                                       'requested_scopes': [], 'token_received_at': None, 'issuer': None}), encoding='utf-8')
         (p.root / '.state/auth/rust-session.json').symlink_to(outside)
         result = p.run('doctor')
         session = (result.get('json') or {}).get('session', {})
@@ -298,10 +306,11 @@ def oauth_cases():
                 port, _ = process.path()
                 with socket.create_connection(('127.0.0.1', port), timeout=2) as connection:
                     if mutation == 'idle':
-                        time.sleep(5.3)
+                        connection.settimeout(6)
+                        assert connection.recv(4096).startswith(b'HTTP/1.1 400')
                     else:
                         connection.sendall(b'GET /oauth/callback?x=\xff HTTP/1.1\r\n\r\n')
-                        time.sleep(0.15)
+                        assert connection.recv(4096).startswith(b'HTTP/1.1 400')
                 alive = process.process.poll() is None
                 status = process.callback() if alive else None
                 passed = alive and status == 200
@@ -326,7 +335,6 @@ def oauth_cases():
                 extra = '&state=other' if mutation == 'duplicate-state' else '&code=other'
                 status = process.callback(extra=extra)
                 passed = status == 400 and not p.session_exists()
-            time.sleep(0.05)
             record('oauth-callback-' + mutation, passed,
                    {'callback_status': status, 'process_alive': process.process.poll() is None,
                     'session_saved': p.session_exists()}, 'F02')
@@ -335,7 +343,7 @@ def oauth_cases():
         process = p.start('signin')
         ready = process.ready.wait(3)
         p.run('disconnect')
-        time.sleep(0.55)
+        process.finished.wait(0.55)
         record('oauth-pending-revoked-on-disconnect', ready and process.process.poll() is not None,
                {'still_waiting_after_550ms': process.process.poll() is None}, 'F03')
 
@@ -404,7 +412,7 @@ def http_cases():
         paused = p.fixture.paused.wait(3)
         before = len(p.fixture.requests)
         p.run('disconnect')
-        time.sleep(0.35)
+        process.finished.wait(0.55)
         p.fixture.resume.set()
         try:
             process.process.wait(timeout=3)
@@ -425,7 +433,7 @@ def http_cases():
         if paused:
             p.run('disconnect')
             p.fixture.resume.set()
-            time.sleep(0.5)
+            process.finished.wait(1)
             forwarded = 0
             status = None
             if process.http_ready.is_set():
@@ -441,7 +449,7 @@ def http_cases():
 
 
 def main():
-    global SOURCE, WORK
+    global SOURCE, WORK, CERTIFICATES
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=SOURCE)
     parser.add_argument('--work-root', type=Path, default=WORK)
@@ -468,6 +476,9 @@ def main():
         # Exception payloads could include a fixture URL/state; retain only its class.
         LOG.error('Harness aborted with %s; payload omitted.', type(error).__name__)
         record('harness-completion', False, {'exception_type': type(error).__name__})
+    finally:
+        if CERTIFICATES is not None:
+            shutil.rmtree(WORK / 'fixture-tls')
     if args.phase == 'all' and len(RESULTS) != 98:
         record('complete-inventory', False, {'expected': 98, 'observed': len(RESULTS)})
     report = {'started_utc': started, 'binary_sha256': hashlib.sha256((SOURCE / 'bin/agensi-mcp').read_bytes()).hexdigest(),

@@ -41,3 +41,7 @@ _Avoid_: Skill Package
 **Runtime State**: Saved identity and user configuration; not disposable cache.
 **Cleanup Preview**: An inventory of eligible removals without performing them.
 **Resolver Observation**: A dated recursive DNS identity observed by a diagnostic service, not a location guarantee.
+
+**Registration Transaction**: Coordinated changes to the intended client registrations, with verification and conditional restoration if completion fails.
+**Recovery Evidence**: Private original configuration retained when restoring it would overwrite a concurrent change.
+**Callback Authority**: The local destination identified by a browser's sign-in callback request.

@@ -82,6 +82,60 @@ try {
         }
         Set-Item Function:\Publish-RegistrationFile $originalPublish
     }
+    foreach ($invalid in @('', ' ', "`n", 'null')) {
+        Set-Fixture $code $invalid
+        $before = Read-RegistrationBytes $code
+        $failed = $false
+        try { Get-RegistrationSnapshot $code | Out-Null } catch { $failed = $true }
+        Assert-Case $failed 'empty or null existing config is refused'
+        Assert-Case (Test-RegistrationBytesEqual $before (Read-RegistrationBytes $code)) 'invalid existing bytes preserved'
+    }
+    $limitPath = Join-Path $fixture 'limit.json'
+    foreach ($size in @((32MB - 1), 32MB, (32MB + 1))) {
+        $stream = [IO.File]::Create($limitPath)
+        try { $stream.SetLength($size) } finally { $stream.Dispose() }
+        $failed = $false
+        try { $bytes = Read-RegistrationBytes $limitPath } catch { $failed = $true }
+        Assert-Case ($failed -eq ($size -gt 32MB)) 'client config read limit is exact'
+        if (-not $failed) { Assert-Case ($bytes.Length -eq $size) 'bounded reader retains exact byte count' }
+    }
+    Set-Fixture $desktop '{"original":1}'
+    Set-Fixture $code '{"original":2}'
+    $first = Get-RegistrationSnapshot $desktop
+    $second = Get-RegistrationSnapshot $code
+    $first.NewBytes = $utf8.GetBytes('{"updated":1}')
+    $second.NewBytes = $utf8.GetBytes('{"updated":2}')
+    $script:publishCount = 0
+    function Publish-RegistrationFile([string]$Stage, [string]$Path) {
+        $script:publishCount++
+        if ($script:publishCount -eq 2) {
+            Set-Fixture $code '{"external-after-failure":true}'
+            throw 'Injected replacement changed target before reporting failure.'
+        }
+        & $originalPublish $Stage $Path
+    }
+    $failed = $false
+    try { Invoke-RegistrationTransaction @($first, $second) } catch { $failed = $true }
+    Assert-Case $failed 'replacement exception after mutation is not success'
+    Assert-Case ([IO.File]::ReadAllText($code, $utf8) -ceq '{"external-after-failure":true}') 'unknown partial replacement is not overwritten'
+    Assert-Case ([IO.File]::Exists($second.Backup)) 'unconfirmed replacement retains original recovery bytes'
+    Assert-Case (Test-RegistrationBytesEqual $first.Bytes (Read-RegistrationBytes $desktop)) 'confirmed prior publication is restored'
+    Set-Item Function:\Publish-RegistrationFile $originalPublish
+    $oversized = Get-RegistrationSnapshot $desktop
+    $oversized.NewBytes = [byte[]]::new(32MB + 1)
+    $failed = $false
+    try { Invoke-RegistrationTransaction @($oversized) } catch { $failed = $true }
+    Assert-Case ($failed -and (Test-RegistrationBytesEqual $oversized.Bytes (Read-RegistrationBytes $desktop))) 'oversized output is refused before publishing'
+    Initialize-RegistrationLog $fixture
+    foreach ($level in @('INFO','WARNING','ERROR','DEBUG')) { Write-RegistrationLog $level 'Safe UTF-8 fixture café.' }
+    Close-RegistrationLog
+    Initialize-RegistrationLog $fixture
+    Write-RegistrationLog INFO 'Second invocation fixture.'
+    Close-RegistrationLog
+    $logs = @(Get-ChildItem -LiteralPath (Join-Path $fixture 'logs') -File)
+    Assert-Case ($logs.Count -eq 2) 'file logging uses a unique file per run'
+    $text = [IO.File]::ReadAllText($logs[0].FullName, [Text.UTF8Encoding]::new($false, $true)) + [IO.File]::ReadAllText($logs[1].FullName, [Text.UTF8Encoding]::new($false, $true))
+    Assert-Case ($text.Contains('café.') -and $text.Contains('UTC] [DEBUG] [registration]')) 'UTF-8 UTC levels roundtrip and handlers close'
     Write-RegistrationLog INFO 'Registration storage regression suite completed.'
 } finally {
     Set-Item Function:\Publish-RegistrationFile $originalPublish

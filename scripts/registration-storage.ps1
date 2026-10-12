@@ -1,9 +1,33 @@
 #requires -Version 7.0
 # Cooperative multi-file registration: validate and stage all files before publishing.
 # This does not claim atomicity against process termination or noncooperating writers.
+function Initialize-RegistrationLog {
+    param([string]$Root)
+    $script:RegistrationLog = $null
+    try {
+        $directory = Join-Path $Root 'logs'
+        Assert-RegistrationPath (Join-Path $directory 'registration.log')
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        $stamp = [DateTime]::UtcNow.ToString('yyyy-MM-dd_HH-mm-ss')
+        $path = Join-Path $directory ('register_' + $stamp + '_UTC_' + [guid]::NewGuid().ToString('N') + '.log')
+        Write-RegistrationStage $path ([byte[]]::new(0))
+        $script:RegistrationLog = [IO.StreamWriter]::new($path, $true, [Text.UTF8Encoding]::new($false))
+        $script:RegistrationLog.AutoFlush = $true
+    } catch {
+        [Console]::Error.WriteLine('File logging unavailable; registration records use stderr.')
+    }
+}
+function Close-RegistrationLog {
+    if ($script:RegistrationLog) { $script:RegistrationLog.Dispose(); $script:RegistrationLog = $null }
+}
 function Write-RegistrationLog {
     param([ValidateSet('INFO','WARNING','ERROR','DEBUG')][string]$Level, [string]$Message)
-    [Console]::Error.WriteLine(('{0} [{1}] {2}' -f [DateTimeOffset]::UtcNow.ToString('o'), $Level, $Message))
+    $safe = [regex]::Replace($Message, '[\x00-\x1f\x7f]', ' ')
+    $entry = '[{0:yyyy-MM-dd HH:mm:ss} UTC] [{1}] [registration] {2}' -f [DateTime]::UtcNow, $Level, $safe
+    if ($script:RegistrationLog) {
+        try { $script:RegistrationLog.WriteLine($entry) } catch { Close-RegistrationLog }
+    }
+    [Console]::Error.WriteLine($entry)
 }
 function Assert-RegistrationPath {
     param([string]$Path)
@@ -49,6 +73,7 @@ function Get-RegistrationSnapshot {
     if ($null -ne $bytes) {
         try {
             $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xfeff)
+            if ([string]::IsNullOrWhiteSpace($text)) { throw 'Empty existing configuration.' }
             $value = ConvertFrom-Json -InputObject $text -AsHashtable -Depth 100
         } catch { throw 'Registration config must contain valid UTF-8 JSON.' }
     }
@@ -91,6 +116,7 @@ function Invoke-RegistrationTransaction {
     $phase = 'locking'
     foreach ($change in $Changes) {
         if ($null -eq $change.NewBytes) { $change.NewBytes = $change.Bytes }
+        if ($null -ne $change.NewBytes -and $change.NewBytes.Length -gt 32MB) { throw 'Registration output exceeds its size limit.' }
     }
     try {
         foreach ($change in @($Changes | Sort-Object Path)) {
@@ -116,7 +142,17 @@ function Invoke-RegistrationTransaction {
         foreach ($change in $Changes) {
             if (-not (Test-RegistrationBytesEqual (Read-RegistrationBytes $change.Path) $change.Bytes)) { throw 'Registration settings changed concurrently during publication.' }
             if (Test-RegistrationBytesEqual $change.NewBytes $change.Bytes) { continue }
-            Publish-RegistrationFile $change.Stage $change.Path
+            try {
+                Publish-RegistrationFile $change.Stage $change.Path
+            } catch {
+                # ReplaceFile may change paths before reporting an error; original recovery must survive.
+                try {
+                    $current = Read-RegistrationBytes $change.Path
+                    if (Test-RegistrationBytesEqual $current $change.NewBytes) { $published.Add($change) }
+                    elseif (-not (Test-RegistrationBytesEqual $current $change.Bytes)) { $keepBackups = $true }
+                } catch { $keepBackups = $true }
+                throw
+            }
             $published.Add($change)
         }
         $phase = 'verifying'

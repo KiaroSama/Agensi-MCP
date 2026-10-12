@@ -3,8 +3,9 @@ param([switch]$DryRun, [switch]$UpgradeProjectEntry, [string]$DesktopConfigPath,
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'registration-storage.ps1')
 $root = Split-Path $PSScriptRoot -Parent
+Initialize-RegistrationLog $root
+Write-RegistrationLog INFO 'Validating registration targets; configuration values omitted.'
 $binary = Join-Path $root 'bin/agensi-mcp.exe'
-if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Download/extract the native executable before registration.' }
 $tempRoot = Join-Path $root '.tmp'
 $entry = @{ command = $binary; args = @('bridge'); env = @{ TEMP = $tempRoot; TMP = $tempRoot; TMPDIR = $tempRoot } }
 function Test-ProjectEntry($Existing) {
@@ -19,6 +20,7 @@ function Test-ExactEntry($Existing) {
         $Existing.env.TEMP -eq $tempRoot -and $Existing.env.TMP -eq $tempRoot -and $Existing.env.TMPDIR -eq $tempRoot
 }
 try {
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Download/extract the native executable before registration.' }
     if (-not $DesktopConfigPath) {
         $normal = Join-Path $env:APPDATA 'Claude/claude_desktop_config.json'
         $packages = Join-Path $env:LOCALAPPDATA 'Packages'
@@ -57,6 +59,7 @@ try {
         } else { $replacement = $entry }
         $config.mcpServers.agensi = $replacement
         $snapshot.NewBytes = [Text.UTF8Encoding]::new($false).GetBytes(($config | ConvertTo-Json -Depth 100))
+        if ($snapshot.NewBytes.Length -gt 32MB) { throw 'Registration output exceeds its size limit.' }
         $changes += $snapshot
     }
     Write-RegistrationLog DEBUG ('Validated ' + $changes.Count + ' registration change(s); config contents omitted.')
@@ -71,6 +74,8 @@ try {
     Invoke-RegistrationTransaction @($desktop, $code)
     Write-Output 'Agensi registered in the validated Desktop and Code targets. Restart clients after selecting your route.'
 } catch {
-    Write-RegistrationLog ERROR $_.Exception.Message
-    throw
+    Write-RegistrationLog ERROR ('Registration refused or failed (' + $_.Exception.GetBaseException().GetType().Name + '); configuration and exception payload omitted.')
+    throw 'Registration failed; review safe registration logs. Existing configuration is preserved or private recovery is retained.'
+} finally {
+    Close-RegistrationLog
 }

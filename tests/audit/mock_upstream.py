@@ -45,7 +45,7 @@ class LocalFixture:
         fixture = self
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
-            daemon_threads = True
+            daemon_threads = False
         class Handler(socketserver.BaseRequestHandler):
             def handle(self):
                 try:
@@ -53,11 +53,17 @@ class LocalFixture:
                 except (OSError, ValueError, ssl.SSLError):
                     LOG.debug('A synthetic connection ended before completion; payload omitted.')
         self.server = Server(('127.0.0.1',0), Handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=0.05))
     @property
     def port(self): return self.server.server_address[1]
     def start(self): self.thread.start(); return self
-    def close(self): self.resume.set(); self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=2)
+    def close(self):
+        self.resume.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        if self.thread.is_alive():
+            raise RuntimeError('Fixture listener did not stop')
     @staticmethod
     def exact(sock, length):
         data=b''

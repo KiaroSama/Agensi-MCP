@@ -68,6 +68,43 @@ Fix real additional defects exposed by these tests in the same session with a re
 
 Optional improvements for owner evaluation: a durable registration crash-recovery journal, redacted diagnostic summary, explicit registration status/dry-run diff limited to the owned entry, property tests for proxy/path parsing, and additional Windows reparse/ACL cases. Do not use these options to defer the required repairs or introduce unrelated runtimes, retry layers, or GPU dependencies into an I/O-bound connector.
 
+## Owner-checkout integration review
+
+The owner accepted the strict callback Host policy for HTTP/1.0 and HTTP/1.1 and the separate
+32 MiB client-configuration cap. The supplemental tree is integrated into the existing runtime
+review branch rather than applying older whole-file candidates. Public owner author/committer
+fields are reconstructed under the approved identity policy; genuine AI attribution is retained.
+
+Additional source-confirmed preservation gaps were repaired: empty/whitespace existing client JSON
+is explicitly refused, output bytes obey the same 32 MiB ceiling, and a failed replacement whose
+target changed (or cannot be inspected) retains original recovery bytes even if the call threw
+before being recorded as successfully published. Confirmed earlier publications still receive
+conditional byte-exact rollback. Regression fixtures exercise unchanged and changed failure states,
+limit-minus-one/exact/plus-one, output refusal, Unicode paths/text and protected logging.
+
+Registration now writes unique per-run UTF-8 UTC files with safe fallback and closed handlers;
+raw exception/configuration payloads are omitted. The existing Linux black-box inventory stays at
+98 required cases. Its repeated certificate setup is shared within one run, child environments are
+allowlisted, event/response observations replace avoidable blind waits, and fixture server threads
+are joined. Native and script CI commands have explicit wall/idle ownership through
+`scripts/run-check.py`. No performance improvement is claimed without comparable measurements.
+
+Current official registry evidence selected serde_json 1.0.154 (compatible patch, MSRV 1.71);
+other direct/development pins remained current. The final changed/reconstructed commit still
+requires its own hosted checks; historical PR4/PR5 green runs are baseline evidence only.
+
+| Finding | Retained or completed implementation | Acceptance evidence required |
+|---|---|---|
+| F01 | OAuthHttp retains RoutedClient | Positive USERID synthetic sign-in and rejecting-proxy native control |
+| F02 | Bounded peer parser plus exact authority/framing | Native header tests and rejected peer followed by valid callback |
+| F03 | Coherent snapshot and bounded cancellation | Startup/probe barriers, token change and existing stdio/SSE tests |
+| F04 | Canonical root SKILL.md | All accepted casing variants; duplicates/unsafe/no-overwrite controls |
+| F05 | Bounded regular-state readers and link checks | FIFO, exact/oversize, corruption/preservation and linked credentials |
+| F06 | Selected-profile coordinated registration | Both Windows suites; conditional rollback, concurrent/partial failure, ACL/caps |
+| F07 | Safe file logs and stderr fallback | Native fallback/levels, registration UTF-8 uniqueness and closed handlers |
+| F08 | Mandatory RustSec; conditional GitHub diff | Exact-final-commit advisory job; unsupported GitHub capability remains disclosed |
+| F09 | Stable exact release preflight | Eight policy cases; artifact-only still allowed |
+
 ## Primary references
 
 - Existing PR and original implemented runtime audit: https://github.com/KiaroSama/Agensi-MCP/pull/4 and https://github.com/KiaroSama/Agensi-MCP/blob/audit/2026-10-12-runtime-invariants/docs/runtime-audit-2026-10-12.md
