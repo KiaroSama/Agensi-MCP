@@ -47,6 +47,14 @@ corresponding source. `BUILD-INFO.txt` records its source commit. Extract into a
 the directory layout; don't move only the executable. An upgrade should not overwrite existing proxy,
 authentication or operational files. Old versions remain available as explicit rollback downloads.
 
+The `2.1.1` patch packages the integrated runtime audit repairs: routed OAuth resource ownership,
+strict callback authority/framing, bounded state reads and coordinated client-registration recovery.
+For an existing source checkout, update its public scripts/source first, verify the matching release,
+and replace only `bin/agensi-mcp.exe` on Windows (or `bin/agensi-mcp` on Unix). Keep a recoverable
+previous executable; do not extract the archive over saved user data. Reconnect clients after the
+upgrade. A successful download or source test does not prove your saved sign-in or actual client
+registration; verify those separately with `probe` and the intended client.
+
 Verify SHA256 before running. On Windows PowerShell, from your downloads folder:
 
 ```bash
