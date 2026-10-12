@@ -84,7 +84,7 @@ regex = "=1.13.1"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "socks", "json", "stream", "form"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "server", "auth", "reqwest", "transport-io", "transport-streamable-http-client-reqwest"] }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.152"
+serde_json = "=1.0.154"
 subtle = "=2.6.1"
 tempfile = "=3.27.0"
 tokio = { version = "=1.53.2", features = ["full"] }
