@@ -248,7 +248,7 @@ class RunnerTests(unittest.TestCase):
         result = self.invoke([str(self.fixture / 'missing-command')])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b'[ERROR]', result.stderr)
-        self.assertNotIn(b'Traceback', result.stderr)
+        self.assertNotIn(b'Traceback', result.stdout + result.stderr)
 
 
 if __name__ == '__main__':

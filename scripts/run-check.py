@@ -68,8 +68,14 @@ def bootstrap():
     # The owner assigns this process to its job before allowing any command/descendant to start.
     if sys.stdin.buffer.readline() != b'start\n':
         return 1
-    result = subprocess.run(sys.argv[2:], stdin=subprocess.DEVNULL, check=False)
-    return result.returncode
+    try:
+        result = subprocess.run(sys.argv[2:], stdin=subprocess.DEVNULL, check=False)
+        return result.returncode
+    except (OSError, subprocess.SubprocessError) as error:
+        # Bootstrap errors belong to the runner, not the untrusted child's output.
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        print(f'[{stamp} UTC] [ERROR] [check] Command launch failed ({type(error).__name__}); payload omitted.', file=sys.stderr)
+        return 1
 
 
 # Fixed-size chunks and a bounded queue prevent newline-free output from growing memory.
@@ -292,7 +298,7 @@ def main():
         except (OSError, ValueError, TimeoutError, subprocess.SubprocessError) as error:
             result = 1
             log.error('Owned cleanup failed (%s); no successful verification claimed.', type(error).__name__)
-        log.info('Completed exit=%s duration_ms=%s.', result, round((time.monotonic() - started) * 1000))
+        log.log(logging.INFO if result == 0 else logging.ERROR, 'Completed exit=%s duration_ms=%s.', result, round((time.monotonic() - started) * 1000))
         close_logging(log)
     return result
 
