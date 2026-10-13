@@ -47,6 +47,8 @@ corresponding source. `BUILD-INFO.txt` records its source commit. Extract into a
 the directory layout; don't move only the executable. An upgrade should not overwrite existing proxy,
 authentication or operational files. Old versions remain available as explicit rollback downloads.
 
+The `2.1.4` patch rejects all documented Windows COM/LPT superscript device aliases in
+skill-file paths on every platform before staging; valid Unicode and near-miss names remain supported.
 The `2.1.3` patch bounds developer-runner writes when a downstream data-pipe consumer stops
 reading, preserving partial output, interruption and pipe state. It includes the `2.1.2`
 Rust-only tooling and Windows bootstrap handle-inheritance repair. It retains the `2.1.1` runtime audit repairs:
