@@ -6,10 +6,12 @@ import ctypes
 from ctypes import wintypes
 import datetime
 import logging
+import math
 import os
 from pathlib import Path
 import queue
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -70,9 +72,59 @@ def bootstrap():
     return result.returncode
 
 
-def configure_logging(root):
+# Fixed-size chunks and a bounded queue prevent newline-free output from growing memory.
+CHUNK_BYTES = 16 * 1024
+PENDING_CHUNKS = 64
+
+
+class OwnedLogHandler(logging.StreamHandler):
+    """Own the exclusive file descriptor instead of reopening the path."""
+    def emit(self, record):
+        if self.stream is None:
+            return
+        try:
+            self.stream.write(self.format(record) + self.terminator)
+            self.flush()
+        except (OSError, ValueError):
+            # The console handler already received this safe status record.
+            self.close()
+
+    def close(self):
+        self.acquire()
+        try:
+            stream, self.stream = self.stream, None
+            if stream:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        finally:
+            self.release()
+            super().close()
+
+
+def close_logging(log):
+    for handler in list(log.handlers):
+        log.removeHandler(handler)
+        handler.close()
+
+
+def reject_linked_path(path):
+    # Cooperative local-path checks, not a hostile filesystem sandbox.
+    for part in (path, *path.parents):
+        try:
+            metadata = part.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, 'st_file_attributes', 0) & 0x400:
+            raise OSError('Linked log path refused')
+
+
+def configure_logging(root, debug=False):
     log = logging.getLogger('check')
-    log.setLevel(logging.INFO)
+    close_logging(log)
+    log.propagate = False
+    log.setLevel(logging.DEBUG if debug else logging.INFO)
     formatter = logging.Formatter('[%(asctime)s UTC] [%(levelname)s] [check] %(message)s', '%Y-%m-%d %H:%M:%S')
     formatter.converter = time.gmtime
     console = logging.StreamHandler(sys.stderr)
@@ -80,12 +132,15 @@ def configure_logging(root):
     log.addHandler(console)
     try:
         directory = root / 'logs'
-        directory.mkdir(exist_ok=True)
+        reject_linked_path(directory)
+        directory.mkdir(mode=0o700, exist_ok=True)
+        reject_linked_path(directory)
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d_%H-%M-%S_UTC')
         path = directory / f'check_{stamp}_{uuid.uuid4().hex}.log'
-        with path.open('x', encoding='utf-8'):
-            pass
-        handler = logging.FileHandler(path, encoding='utf-8')
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
+        descriptor = os.open(path, flags, 0o600)
+        stream = os.fdopen(descriptor, 'w', encoding='utf-8')
+        handler = OwnedLogHandler(stream)
         handler.setFormatter(formatter)
         log.addHandler(handler)
     except OSError:
@@ -93,24 +148,96 @@ def configure_logging(root):
     return log
 
 
+def positive_finite(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError('A finite positive bound is required')
+    return number
+
+
+def enqueue(events, stop, event):
+    while not stop.is_set():
+        try:
+            events.put(event, timeout=0.05)
+            return True
+        except queue.Full:
+            pass
+    return False
+
+
+def consume_output(stream, events, stop):
+    try:
+        while not stop.is_set():
+            chunk = stream.read1(CHUNK_BYTES)
+            if not chunk:
+                break
+            if not enqueue(events, stop, ('chunk', chunk)):
+                return
+    except Exception as error:
+        # A reader failure is not EOF; carry only the type, never the exception payload.
+        enqueue(events, stop, ('error', type(error).__name__))
+    finally:
+        enqueue(events, stop, ('eof', None))
+
+
+def cleanup_owned(process, job, assigned, readers, stop, log):
+    stop.set()  # Release readers waiting on a full queue before joining them.
+    success = True
+    try:
+        if job:
+            if process and not assigned and process.poll() is None:
+                process.kill()  # The bootstrap gate has not permitted any descendant yet.
+            job.stop()
+        elif process:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except (OSError, TimeoutError, subprocess.SubprocessError) as error:
+        success = False
+        log.error('Owned termination failed (%s); payload omitted.', type(error).__name__)
+    finally:
+        if job:
+            job.close()  # KILL_ON_JOB_CLOSE remains a backstop even when verification fails.
+    if process:
+        try:
+            process.wait(timeout=5)
+        except (OSError, TimeoutError, subprocess.SubprocessError) as error:
+            success = False
+            log.error('Owned wait failed (%s); payload omitted.', type(error).__name__)
+    deadline = time.monotonic() + 5
+    for thread, stream in readers:
+        thread.join(timeout=max(0, deadline - time.monotonic()))
+        if thread.is_alive():
+            success = False
+            log.error('Owned output reader did not stop; no successful verification claimed.')
+        else:
+            stream.close()
+    if process and process.stdin and not process.stdin.closed:
+        process.stdin.close()
+    return success
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--wall', type=float, required=True)
-    parser.add_argument('--idle', type=float, required=True)
+    parser.add_argument('--wall', type=positive_finite, required=True)
+    parser.add_argument('--idle', type=positive_finite, required=True)
+    parser.add_argument('--debug', action='store_true')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
-    if not command or min(args.wall, args.idle) <= 0:
-        parser.error('A command and positive wall/idle bounds are required')
+    if not command:
+        parser.error('A command is required')
     root = Path(__file__).resolve().parents[1]
-    log = configure_logging(root)
+    log = configure_logging(root, args.debug)
     job = None
     assigned = False
     process = None
     readers = []
+    stop = threading.Event()
     result = 1
     started = time.monotonic()
-    events = queue.Queue()
+    events = queue.Queue(maxsize=PENDING_CHUNKS)
     try:
         if os.name == 'nt':
             job = WindowsJob()
@@ -118,26 +245,19 @@ def main():
         else:
             launched = command
         process = subprocess.Popen(launched, cwd=root, stdin=subprocess.PIPE if job else subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8',
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    start_new_session=not bool(job), creationflags=0x08000000 if job else 0)
         if job:
             job.assign(process)
             assigned = True
-            process.stdin.buffer.write(b'start\n')
+            process.stdin.write(b'start\n')
             process.stdin.close()
         log.info('Started pid=%s wall=%s idle=%s; arguments omitted.', process.pid, args.wall, args.idle)
-
-        def consume(stream):
-            try:
-                for line in stream:
-                    events.put(line)
-            finally:
-                events.put(None)
-
+        log.debug('Output queue bounded to %s chunks of at most %s bytes.', PENDING_CHUNKS, CHUNK_BYTES)
         for stream in (process.stdout, process.stderr):
-            thread = threading.Thread(target=consume, args=(stream,))
+            thread = threading.Thread(target=consume_output, args=(stream, events, stop), daemon=True)
             thread.start()
-            readers.append(thread)
+            readers.append((thread, stream))
         complete = 0
         progress = started
         while complete < 2 or process.poll() is None:
@@ -145,47 +265,35 @@ def main():
             if now - started > args.wall or now - progress > args.idle:
                 raise TimeoutError('Check exceeded wall or idle limit')
             try:
-                line = events.get(timeout=0.05)
+                kind, value = events.get(timeout=0.05)
             except queue.Empty:
                 continue
-            if line is None:
+            if kind == 'eof':
                 complete += 1
+            elif kind == 'error':
+                log.error('Output reader failed (%s); payload omitted.', value)
+                raise OSError('Cannot verify complete command output')
             else:
                 progress = time.monotonic()
-                sys.stdout.write(line)
-                sys.stdout.flush()
+                # Preserve arbitrary bytes and split UTF-8 sequences; never decode in reader threads.
+                sys.stdout.buffer.write(value)
+                sys.stdout.buffer.flush()
         result = process.wait(timeout=5)
-        log.info('Completed exit=%s duration_ms=%s.', result, round((time.monotonic() - started) * 1000))
     except (OSError, ValueError, TimeoutError, subprocess.SubprocessError) as error:
+        result = 1
         log.error('Check failed (%s); payload omitted.', type(error).__name__)
+    except KeyboardInterrupt:
+        result = 130
+        log.warning('Check interrupted; stopping owned processes.')
     finally:
         try:
-            if job:
-                if process and not assigned and process.poll() is None:
-                    process.kill()  # The bootstrap gate has not permitted any descendant yet.
-                job.stop()
-            elif process:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            if process:
-                process.wait(timeout=5)
-            for thread in readers:
-                thread.join(timeout=5)
-                if thread.is_alive():
-                    raise TimeoutError('Owned output reader did not stop')
-        except (OSError, TimeoutError, subprocess.SubprocessError) as error:
+            if not cleanup_owned(process, job, assigned, readers, stop, log):
+                result = 1
+        except (OSError, ValueError, TimeoutError, subprocess.SubprocessError) as error:
             result = 1
             log.error('Owned cleanup failed (%s); no successful verification claimed.', type(error).__name__)
-        finally:
-            if job:
-                job.close()
-            if process:
-                for stream in (process.stdin, process.stdout, process.stderr):
-                    if stream and not stream.closed:
-                        stream.close()
-            logging.shutdown()
+        log.info('Completed exit=%s duration_ms=%s.', result, round((time.monotonic() - started) * 1000))
+        close_logging(log)
     return result
 
 

@@ -93,7 +93,10 @@ jobs:
           chmod +x bin/agensi-mcp
           bash run.sh status
       - name: Verify owned runner on the native platform
-        run: python scripts/run-check.py --wall 30 --idle 15 -- python scripts/test-check-runner.py
+        run: python scripts/run-check.py --wall 90 --idle 20 -- python scripts/test-check-runner.py
+      - name: Windows menu exit and redirected input contracts
+        if: runner.os == 'Windows'
+        run: python scripts/run-check.py --wall 90 --idle 20 -- python -X utf8 scripts/test-menu.py
       - name: Isolated registration upgrade and preservation tests
         if: runner.os == 'Windows'
         run: |

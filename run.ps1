@@ -11,6 +11,11 @@ $env:TEMP = $tempRoot
 $env:TMP = $tempRoot
 $env:TMPDIR = $tempRoot
 $defaultList = Join-Path $root 'Proxy list.txt'
+function Write-LauncherLog {
+    param([ValidateSet('INFO', 'WARNING', 'ERROR', 'DEBUG')][string]$Level, [string]$Message)
+    $safe = [regex]::Replace($Message, '[\x00-\x1f\x7f]', ' ')
+    [Console]::Error.WriteLine(('[{0:yyyy-MM-dd HH:mm:ss} UTC] [{1}] [menu] {2}' -f [DateTime]::UtcNow, $Level, $safe))
+}
 function Invoke-Manager([string[]]$Arguments) {
     $output = & $manager @Arguments
     if ($LASTEXITCODE -ne 0) { throw 'Management command failed.' }
@@ -70,7 +75,9 @@ try {
         Write-Painted '[1] ' '92' Green -NoNewline
         Write-Painted 'quit=exit' '38;5;32' Blue -NoNewline
         Write-Host ': ' -NoNewline
-        $choice = Read-Host
+        # Redirected EOF is not an empty selection and must never repeat the default action.
+        $choice = if ([Console]::IsInputRedirected) { [Console]::ReadLine() } else { Read-Host }
+        if ($null -eq $choice) { Write-LauncherLog INFO 'Input closed; exiting the menu.'; exit 0 }
         if (-not $choice) { $choice = '1' }
         try {
             switch ($choice.Trim().ToLowerInvariant()) {
@@ -122,6 +129,7 @@ try {
                 '11' { & $manager network-check }
                 '12' { & $manager cleanup }
                 '13' { & $manager cleanup --apply }
+                'quit' { exit 0 }
                 'exit' { exit 0 }
                 '0' { exit 0 }
                 default { Write-Host 'Enter a menu number from 1 to 13, or exit.' -ForegroundColor Red }
