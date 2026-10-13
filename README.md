@@ -47,8 +47,9 @@ corresponding source. `BUILD-INFO.txt` records its source commit. Extract into a
 the directory layout; don't move only the executable. An upgrade should not overwrite existing proxy,
 authentication or operational files. Old versions remain available as explicit rollback downloads.
 
-The `2.1.2` patch packages Rust-only project tooling and regression fixtures, including the
-Windows bootstrap handle-inheritance repair. It retains the `2.1.1` runtime audit repairs:
+The `2.1.3` patch bounds developer-runner writes when a downstream data-pipe consumer stops
+reading, preserving partial output, interruption and pipe state. It includes the `2.1.2`
+Rust-only tooling and Windows bootstrap handle-inheritance repair. It retains the `2.1.1` runtime audit repairs:
 routed OAuth resource ownership, strict callback authority/framing, bounded state reads and
 coordinated client-registration recovery.
 For an existing source checkout, update its public scripts/source first, verify the matching release,
@@ -531,7 +532,10 @@ required. CI bootstraps the native `check-run` tool, then runs checks with expli
 bounds, byte-preserving binary output, exit-code propagation and owned-tree termination. Maintained
 source and status logs are UTF-8; arbitrary child output is relayed without decoding. Newline-free
 chunks count as progress, buffering is bounded, and nonfinite/nonpositive deadlines are rejected
-before launch. The runner has 18 regression methods; six native Windows menu methods cover EOF,
+before launch. The runner has 18 regression methods plus four output-boundary unit tests. Four native-platform
+pressure controls distinguish complete draining output from a stalled data-pipe consumer; a usable
+status sink is required. See [Output pressure review](docs/output-pressure-review-2026-10-13.md).
+Six native Windows menu methods cover EOF,
 blank-line default import, exit aliases and machine-readable status. Cases have local deadlines;
 jobs have outer budgets and constrained compile/test concurrency. See
 [Native tooling commands](docs/migration-contracts.md#native-tooling-migration) for release guards and
