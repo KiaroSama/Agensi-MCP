@@ -5,9 +5,37 @@ edition = "2024"
 rust-version = "1.99"
 license = "GPL-3.0-only"
 description = "Fail-closed Agensi MCP bridge and local connection manager"
+default-run = "agensi-mcp"
 
 [lib]
 path = "native/src/lib.rs"
+
+[[bin]]
+name = "check-run"
+path = "tools/check/main.rs"
+
+[[test]]
+name = "check_runner"
+path = "tools/tests/runner.rs"
+harness = false
+
+[[test]]
+name = "check_release"
+path = "tools/tests/release.rs"
+
+[[test]]
+name = "operator"
+path = "tools/tests/operator.rs"
+
+[[test]]
+name = "menu"
+path = "tools/tests/menu.rs"
+harness = false
+
+[[test]]
+name = "audit_blackbox"
+path = "tests/audit/main.rs"
+harness = false
 
 [[bin]]
 name = "agensi-mcp"
@@ -68,6 +96,7 @@ path = "native/tests/audit_regressions.rs"
 [dev-dependencies]
 rcgen = "=0.14.10"
 tokio-rustls = "=0.26.6"
+sha2 = "=0.11.1"
 
 [dependencies]
 axum = "=0.8.9"
@@ -93,3 +122,4 @@ uuid = { version = "=1.28.0", features = ["v4"] }
 tokio-socks = "=0.5.3"
 fast-socks5 = "=1.0.0"
 log = "=0.4.34"
+toml = { version = "=1.1.8", default-features = false, features = ["std", "serde", "parse"] }

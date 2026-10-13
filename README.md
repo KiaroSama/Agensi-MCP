@@ -521,13 +521,16 @@ The Linux independent synthetic black-box suite executes all 98 required cases, 
 SOCKS4 USERID sign-in, route revocation, malformed/fragmented callbacks and protected local state.
 Windows executes both isolated registration suites; release preflight rejects a label that differs
 from the package version. RustSec checks the full lockfile independently of the optional GitHub
-Dependency Graph capability. CI tests run through `scripts/run-check.py` with explicit wall/idle
+Dependency Graph capability. Project tooling and test fixtures are Rust; no Python interpreter is
+required. CI bootstraps the native `check-run` tool, then runs checks with explicit wall/idle
 bounds, byte-preserving binary output, exit-code propagation and owned-tree termination. Maintained
 source and status logs are UTF-8; arbitrary child output is relayed without decoding. Newline-free
 chunks count as progress, buffering is bounded, and nonfinite/nonpositive deadlines are rejected
 before launch. The runner has 18 regression methods; six native Windows menu methods cover EOF,
 blank-line default import, exit aliases and machine-readable status. Cases have local deadlines;
-jobs have outer budgets and constrained compile/test concurrency. These synthetic checks
+jobs have outer budgets and constrained compile/test concurrency. See
+[Native tooling commands](docs/migration-contracts.md#native-tooling-migration) for release guards and
+platform-specific test targets. These synthetic checks
 do not certify real account/browser or all four native client GUI integrations.
 No tests purchase, publish or contact Agensi. Source parity and known limitations:
 [Migration contracts](docs/migration-contracts.md). Positive custom-CA HTTPS-proxy parity and full

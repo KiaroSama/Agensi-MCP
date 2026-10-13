@@ -50,9 +50,9 @@ The expanded Linux black-box fixture terminates all synthetic proxy/TLS/OAuth/MC
 
 Require the final code-bearing revision to pass:
 
-- `cargo +1.99.0 fmt --all --check`, `cargo +1.99.0 clippy --locked --all-targets -- -D warnings`, `cargo +1.99.0 build --locked`, `cargo +1.99.0 test --locked --all-targets -- --test-threads=2`, and `cargo +1.99.0 test --locked --doc`.
+- `cargo +1.99.0 fmt --all --check`, `cargo +1.99.0 clippy --locked --all-targets -- -D warnings`, `cargo +1.99.0 build --locked --all-targets`, explicit ordinary native test targets with `--test-threads=2`, and `cargo +1.99.0 test --locked --doc`. The current target mapping is enforced in CI; platform-specific custom harnesses run separately.
 - On Windows: `pwsh -NoProfile -File scripts/test-registration.ps1` and `pwsh -NoProfile -File scripts/test-registration-storage.ps1`, against the freshly built executable, with each exit status checked.
-- On Linux: `python3 tests/audit/audit_regressions.py --source-root . --output .tmp/audit-results.json`, all 98 cases, zero failures; and `python3 scripts/test-release.py`.
+- On Linux: `cargo +1.99.0 test --locked --test audit_blackbox -- --source-root . --output .tmp/audit-results.json`, all 98 cases, zero failures; release-policy coverage uses `--test check_release`. Run through the native guard as described in [migration contracts](migration-contracts.md#native-tooling-migration).
 - Publication/sensitive-pattern checks, retained four-platform CI, CodeQL, mandatory RustSec, and current Dependabot Cargo/Actions coverage. A missing scanner feed or pending run is not PASS.
 
 Fix real additional defects exposed by these tests in the same session with a regression. If a fixture asserts the wrong contract, explain and repair the fixture against source and documented behavior, retaining negative/positive controls; never suppress a genuine failure or endlessly rerun an unchanged failing check.
@@ -87,7 +87,7 @@ raw exception/configuration payloads are omitted. The existing Linux black-box i
 98 required cases. Its repeated certificate setup is shared within one run, child environments are
 allowlisted, event/response observations replace avoidable blind waits, and fixture server threads
 are joined. Native and script CI commands have explicit wall/idle ownership through
-`scripts/run-check.py`. No performance improvement is claimed without comparable measurements.
+the original Python guard at that revision; the current native `check-run` replacement preserves those contracts. No performance improvement is claimed without comparable measurements.
 
 Current official registry evidence selected serde_json 1.0.154 (compatible patch, MSRV 1.71);
 other direct/development pins remained current. Final integrated source commit

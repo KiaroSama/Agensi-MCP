@@ -1,0 +1,399 @@
+{
+  "source_commit": "309052d64a5c205b906c6ee719e7816b32c9a365",
+  "ci_run": 38399416532,
+  "artifact_id": 11812889295,
+  "cases": [
+    {
+      "case": "oracle-proxy-0",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-1",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-2",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-3",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-4",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-5",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-6",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-7",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-8",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-9",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-10",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-11",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-12",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-13",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-14",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-15",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-16",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-17",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-18",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-19",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-20",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-21",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-22",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-proxy-23",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-0",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-1",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-2",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-3",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-4",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-5",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-6",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-7",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-8",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-9",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-10",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-11",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-config-12",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-0",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-1",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-2",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-3",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-4",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-5",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-6",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-7",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-8",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-9",
+      "status": "PASS"
+    },
+    {
+      "case": "oracle-list-10",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-entry-SKILL.md",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-entry-skill.md",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-entry-Skill.md",
+      "status": "PASS"
+    },
+    {
+      "case": "unknown-config-preserved",
+      "status": "PASS"
+    },
+    {
+      "case": "failed-config-update-preserves-bytes",
+      "status": "PASS"
+    },
+    {
+      "case": "disconnected-network-check-refuses",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-refuses-../outside",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-refuses-/absolute",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-refuses-C:\\escape",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-refuses-NUL.txt",
+      "status": "PASS"
+    },
+    {
+      "case": "skill-refuses-nested/../escape",
+      "status": "PASS"
+    },
+    {
+      "case": "fifo-config-bounded",
+      "status": "PASS"
+    },
+    {
+      "case": "fifo-session-bounded",
+      "status": "PASS"
+    },
+    {
+      "case": "fifo-import-bounded",
+      "status": "PASS"
+    },
+    {
+      "case": "fifo-skill-input-bounded",
+      "status": "PASS"
+    },
+    {
+      "case": "stderr-logging-fallback-events",
+      "status": "PASS"
+    },
+    {
+      "case": "status-does-not-touch-unused-state-link",
+      "status": "PASS"
+    },
+    {
+      "case": "linked-auth-directory-never-written",
+      "status": "PASS"
+    },
+    {
+      "case": "linked-session-not-loaded",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-http-userid-False",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks4-userid-False",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks4a-userid-False",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks5-userid-False",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks5h-userid-False",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks4-userid-True",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-socks4a-userid-True",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-fragment",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-invalid-utf8",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-idle",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-wrong-state",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-duplicate-state",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-duplicate-code",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-wrong-host",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-missing-host",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-duplicate-host",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-callback-mixed-case-host",
+      "status": "PASS"
+    },
+    {
+      "case": "oauth-pending-revoked-on-disconnect",
+      "status": "PASS"
+    },
+    {
+      "case": "http-startup-from-stored-session",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-ordinary-post",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-foreign-origin",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-null-origin",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-wrong-host",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-query-refused",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-method-refused",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-wrong-path",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-same-origin",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-request-size-limit",
+      "status": "PASS"
+    },
+    {
+      "case": "local-http-idle-disconnect",
+      "status": "PASS"
+    },
+    {
+      "case": "probe-no-requests-after-disconnect",
+      "status": "PASS"
+    },
+    {
+      "case": "http-startup-route-snapshot-consistent",
+      "status": "PASS"
+    }
+  ]
+}

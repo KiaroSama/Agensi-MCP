@@ -12,28 +12,7 @@ on:
 permissions:
   contents: read
 jobs:
-  release-preflight:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      version: ${{ steps.identity.outputs.version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Test release identity guard
-        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 scripts/test-release.py
-      - name: Verify agent-only operator contracts
-        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 -X utf8 scripts/test-operator.py
-      - name: Verify bounded process ownership
-        run: python scripts/test-check-runner.py
-      - name: Validate package and requested release identity
-        id: identity
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python scripts/run-check.py --wall 30 --idle 15 -- python3 scripts/check-release.py
   native:
-    needs: release-preflight
     strategy:
       fail-fast: false
       matrix:
@@ -76,10 +55,25 @@ jobs:
         id: formatting
         continue-on-error: true
         run: cargo +1.99.0 fmt --all --check
+      - name: Bootstrap native check tool
+        timeout-minutes: 20
+        run: |
+          cargo +1.99.0 build --locked --bin check-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Select native check tool
+        run: |
+          New-Item .tmp -ItemType Directory -Force | Out-Null
+          $name = if ($IsWindows) { 'check-run.exe' } else { 'check-run' }
+          Copy-Item "target/debug/$name" ".tmp/$name"
+          "CHECK_RUN=./.tmp/$name" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Validate package and requested release identity
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: '& $env:CHECK_RUN --wall 30 --idle 15 -- $env:CHECK_RUN release'
       - name: Static checks
-        run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings
+        run: '& $env:CHECK_RUN --wall 600 --idle 120 -- cargo +1.99.0 clippy --locked --all-targets -- -D warnings'
       - name: Build native executable and test targets
-        run: cargo +1.99.0 build --locked --all-targets
+        run: '& $env:CHECK_RUN --wall 600 --idle 120 -- cargo +1.99.0 build --locked --all-targets'
       - name: Prepare Windows launcher executable
         if: runner.os == 'Windows'
         run: |
@@ -93,28 +87,37 @@ jobs:
           chmod +x bin/agensi-mcp
           bash run.sh status
       - name: Verify owned runner on the native platform
-        run: python scripts/run-check.py --wall 90 --idle 20 -- python scripts/test-check-runner.py
+        run: '& $env:CHECK_RUN --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test check_runner'
       - name: Windows menu exit and redirected input contracts
         if: runner.os == 'Windows'
-        run: python scripts/run-check.py --wall 90 --idle 20 -- python -X utf8 scripts/test-menu.py
+        run: '& $env:CHECK_RUN --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test menu'
       - name: Isolated registration upgrade and preservation tests
         if: runner.os == 'Windows'
         run: |
-          python scripts/run-check.py --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration.ps1
+          & $env:CHECK_RUN --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/run-check.py --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration-storage.ps1
+          & $env:CHECK_RUN --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration-storage.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
         run: |
           New-Item .tmp -ItemType Directory -Force | Out-Null
-          python scripts/run-check.py --wall 180 --idle 45 -- cargo +1.99.0 test --locked --all-targets -- --test-threads=2 2>&1 | Tee-Object -FilePath .tmp/ci-native-tests.log
+          $names = @('management','network','auth','tls','protocol','oauth_flow','entry','socks4_userid','local_http','settings','diagnostics','cleanup','audit_regressions','check_release','operator')
+          $metadata = & cargo +1.99.0 metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actual = @($metadata.packages | Where-Object name -eq 'agensi-mcp' | ForEach-Object targets | Where-Object { $_.kind -contains 'test' } | ForEach-Object name)
+          $mapped = $names + @('check_runner','menu','audit_blackbox')
+          if (Compare-Object ($actual | Sort-Object) ($mapped | Sort-Object)) { throw 'CI test-target mapping is incomplete.' }
+          $testArgs = @('+1.99.0','test','--locked','--lib','--bin','agensi-mcp','--bin','check-run')
+          foreach ($name in $names) { $testArgs += @('--test',$name) }
+          $testArgs += @('--','--test-threads=2')
+          & $env:CHECK_RUN --wall 180 --idle 45 -- cargo @testArgs 2>&1 | Tee-Object -FilePath .tmp/ci-native-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Documentation tests
-        run: python scripts/run-check.py --wall 60 --idle 30 -- cargo +1.99.0 test --locked --doc
+        run: '& $env:CHECK_RUN --wall 60 --idle 30 -- cargo +1.99.0 test --locked --doc'
       - name: Black-box OAuth, revocation, filesystem and management regressions
         if: runner.os == 'Linux'
         timeout-minutes: 5
-        run: python scripts/run-check.py --wall 120 --idle 20 -- python3 tests/audit/audit_regressions.py --source-root . --output .tmp/audit-results.json
+        run: '& $env:CHECK_RUN --wall 120 --idle 20 -- cargo +1.99.0 test --locked --test audit_blackbox -- --source-root . --output .tmp/audit-results.json'
       - name: Retain sanitized black-box results
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -130,7 +133,7 @@ jobs:
         run: exit 1
       - name: Build optimized downloadable executable
         if: github.event_name == 'workflow_dispatch'
-        run: cargo +1.99.0 build --locked --release
+        run: '& $env:CHECK_RUN --wall 900 --idle 180 -- cargo +1.99.0 build --locked --release --bin agensi-mcp'
       - name: Package and verify extracted download
         if: github.event_name == 'workflow_dispatch'
         run: pwsh -NoProfile -File scripts/package-release.ps1 -Platform '${{ matrix.platform }}'
@@ -155,7 +158,7 @@ jobs:
           retention-days: 7
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
-    needs: [native, release-preflight]
+    needs: [native]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
