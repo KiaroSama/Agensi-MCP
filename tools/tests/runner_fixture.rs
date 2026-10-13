@@ -74,6 +74,7 @@ pub fn child(args: &[OsString]) -> i32 {
                 {
                     use std::os::windows::process::CommandExt;
                     command.creation_flags(0x08000000);
+                    prevent_unselected_stdio_inheritance()?;
                 }
                 if mode == "parent-null" {
                     command.stdout(Stdio::null()).stderr(Stdio::null());
@@ -105,6 +106,30 @@ pub fn child(args: &[OsString]) -> i32 {
     } else {
         0
     }
+}
+
+#[cfg(windows)]
+fn prevent_unselected_stdio_inheritance() -> io::Result<()> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(kind: u32) -> *mut c_void;
+        fn SetHandleInformation(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+    // Python close_fds=True excludes the originals; Rust1.99 otherwise inherits unrelated handles.
+    // Command duplicates explicitly selected inherited stdio, so parent-inherit keeps its pipes.
+    for kind in [-10_i32, -11, -12] {
+        // SAFETY: query this fixture process's own standard handle, without taking ownership.
+        let handle = unsafe { GetStdHandle(kind as u32) };
+        if handle.is_null() || handle as isize == -1 {
+            continue;
+        }
+        // SAFETY: change only HANDLE_FLAG_INHERIT on the live handle owned by this fixture process.
+        if unsafe { SetHandleInformation(handle, 1, 0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 pub struct Fixture {

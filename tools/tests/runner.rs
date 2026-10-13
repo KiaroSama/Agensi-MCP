@@ -146,7 +146,18 @@ fn descendant_case(inherit: bool) {
     fs::remove_file(lease).expect("Release fixture lease");
     wait_dead(pid, Duration::from_secs(3));
     assert!(!survived, "An owned descendant survived runner cleanup");
-    assert_eq!(result.status.success(), !inherit);
+    let safe_status = String::from_utf8_lossy(&result.stderr)
+        .lines()
+        .filter(|line| line.starts_with('[') && line.contains("] [check] "))
+        .map(|line| line.chars().take(256).collect::<String>())
+        .take(20)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        result.status.success(),
+        !inherit,
+        "Safe runner status:\n{safe_status}"
+    );
 }
 fn test_success_reaps_descendant_after_direct_parent_exit() {
     descendant_case(false);
