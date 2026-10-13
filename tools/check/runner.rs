@@ -1,5 +1,7 @@
 //! Bounded byte streaming; status records never contain command arguments or child payload.
 use crate::process::{self, OwnedProcess};
+#[path = "output.rs"]
+mod output;
 use chrono::Utc;
 use std::{
     ffi::OsString,
@@ -24,7 +26,7 @@ pub struct CheckLog {
 }
 impl CheckLog {
     pub fn new(root: &Path, debug: bool) -> Self {
-        let file = (|| -> anyhow::Result<File> {
+    let file = (|| -> anyhow::Result<File> {
             let directory = root.join("logs");
             // Reuse the existing cooperative link/reparse/nonregular refusal, including ancestors.
             agensi_mcp::storage::check_file(&directory.join(".check-path-probe"))?;
@@ -264,6 +266,7 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
     let stop = Arc::new(AtomicBool::new(false));
     let (events, receiver) = mpsc::sync_channel(PENDING_CHUNKS);
     let mut owned = None;
+    let mut output = None;
     let mut readers = Vec::new();
     let started = Instant::now();
     let interrupt = process::InterruptGuard::install();
@@ -300,6 +303,10 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
                 Pipe::Err(pipe) => reader(pipe, events.clone(), stop.clone())?,
             });
         }
+        output = Some(output::Output::new().inspect_err(|error| {
+            log.event("ERROR", &format!("Cannot prepare output pipe ({:?}); payload omitted.", error.kind()));
+        })?);
+        let sink = output.as_mut().ok_or_else(|| io::Error::other("Missing output sink"))?;
         let mut complete = 0;
         let mut progress = started;
         let mut status = None;
@@ -330,9 +337,20 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
                 }
                 Ok(OutputEvent::Chunk(bytes)) => {
                     progress = Instant::now();
-                    let mut output = io::stdout().lock();
-                    output.write_all(&bytes)?;
-                    output.flush()?;
+                    sink.write_chunk(&bytes, |made_progress| {
+                        if process::interrupted() {
+                            return Err(io::ErrorKind::Interrupted.into());
+                        }
+                        if started.elapsed().as_secs_f64() > options.wall
+                            || progress.elapsed().as_secs_f64() > options.idle
+                        {
+                            return Err(io::ErrorKind::TimedOut.into());
+                        }
+                        if made_progress {
+                            progress = Instant::now();
+                        }
+                        Ok(())
+                    })?;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -346,6 +364,10 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
     })();
     let mut code = match result {
         Ok(code) => code,
+        Err(error) if error.kind() == io::ErrorKind::Interrupted && process::interrupted() => {
+            log.event("WARNING", "Check interrupted; stopping owned processes.");
+            130
+        }
         Err(error) => {
             let label = if error.kind() == io::ErrorKind::TimedOut {
                 "TimeoutError"
@@ -366,6 +388,12 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
         && process.stop().is_err()
     {
         log.event("ERROR", "Owned termination/wait failed; payload omitted.");
+        code = 1;
+    }
+    if let Some(output) = output.as_mut()
+        && output.restore().is_err()
+    {
+        log.event("ERROR", "Cannot restore output pipe mode; no success claimed.");
         code = 1;
     }
     let deadline = Instant::now() + Duration::from_secs(5);
