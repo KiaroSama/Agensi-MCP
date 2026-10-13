@@ -88,6 +88,8 @@ jobs:
           bash run.sh status
       - name: Verify owned runner on the native platform
         run: '& $env:CHECK_RUN --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test check_runner'
+      - name: Runner output-consumer pressure regressions
+        run: pwsh -NoProfile -File scripts/test-output-pressure.ps1
       - name: Windows menu exit and redirected input contracts
         if: runner.os == 'Windows'
         run: '& $env:CHECK_RUN --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test menu'
