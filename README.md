@@ -427,7 +427,9 @@ conversion, revenue or causality. No private/acquired marketplace instructions r
 ## Logging
 
 New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>_<uuid>.log`. Registration
-and bounded CI checks use unique `logs/register_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log` files. Entries:
+uses unique `logs/register_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log` files; bounded CI checks use
+`logs/check_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log`. The check runner refuses linked log paths,
+owns its exclusive UTF-8 log stream, and enables safe DEBUG status with `--debug`. Entries:
 `[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [COMPONENT] Message`. Safe startup/failure/shutdown metadata only;
 no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses stderr. Vendor debug
 logging stays disabled because third-party protocol logs may expose credential bytes. Retention manual;
@@ -520,8 +522,12 @@ SOCKS4 USERID sign-in, route revocation, malformed/fragmented callbacks and prot
 Windows executes both isolated registration suites; release preflight rejects a label that differs
 from the package version. RustSec checks the full lockfile independently of the optional GitHub
 Dependency Graph capability. CI tests run through `scripts/run-check.py` with explicit wall/idle
-bounds, captured UTF-8 output, exit-code propagation and owned-tree termination. Cases have local
-deadlines; jobs have outer budgets and constrained compile/test concurrency. These synthetic checks
+bounds, byte-preserving binary output, exit-code propagation and owned-tree termination. Maintained
+source and status logs are UTF-8; arbitrary child output is relayed without decoding. Newline-free
+chunks count as progress, buffering is bounded, and nonfinite/nonpositive deadlines are rejected
+before launch. The runner has 18 regression methods; six native Windows menu methods cover EOF,
+blank-line default import, exit aliases and machine-readable status. Cases have local deadlines;
+jobs have outer budgets and constrained compile/test concurrency. These synthetic checks
 do not certify real account/browser or all four native client GUI integrations.
 No tests purchase, publish or contact Agensi. Source parity and known limitations:
 [Migration contracts](docs/migration-contracts.md). Positive custom-CA HTTPS-proxy parity and full
