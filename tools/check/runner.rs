@@ -1,7 +1,7 @@
 //! Bounded byte streaming; status records never contain command arguments or child payload.
 use crate::process::{self, OwnedProcess};
 #[path = "output.rs"]
-mod output;
+pub(crate) mod output;
 use chrono::Utc;
 use std::{
     ffi::OsString,
@@ -26,7 +26,7 @@ pub struct CheckLog {
 }
 impl CheckLog {
     pub fn new(root: &Path, debug: bool) -> Self {
-    let file = (|| -> anyhow::Result<File> {
+        let file = (|| -> anyhow::Result<File> {
             let directory = root.join("logs");
             // Reuse the existing cooperative link/reparse/nonregular refusal, including ancestors.
             agensi_mcp::storage::check_file(&directory.join(".check-path-probe"))?;
@@ -304,9 +304,17 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
             });
         }
         output = Some(output::Output::new().inspect_err(|error| {
-            log.event("ERROR", &format!("Cannot prepare output pipe ({:?}); payload omitted.", error.kind()));
+            log.event(
+                "ERROR",
+                &format!(
+                    "Cannot prepare output pipe ({:?}); payload omitted.",
+                    error.kind()
+                ),
+            );
         })?);
-        let sink = output.as_mut().ok_or_else(|| io::Error::other("Missing output sink"))?;
+        let sink = output
+            .as_mut()
+            .ok_or_else(|| io::Error::other("Missing output sink"))?;
         let mut complete = 0;
         let mut progress = started;
         let mut status = None;
@@ -393,7 +401,10 @@ pub fn run(root: &Path, args: Vec<OsString>) -> i32 {
     if let Some(output) = output.as_mut()
         && output.restore().is_err()
     {
-        log.event("ERROR", "Cannot restore output pipe mode; no success claimed.");
+        log.event(
+            "ERROR",
+            "Cannot restore output pipe mode; no success claimed.",
+        );
         code = 1;
     }
     let deadline = Instant::now() + Duration::from_secs(5);

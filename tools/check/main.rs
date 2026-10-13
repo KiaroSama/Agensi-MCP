@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod output_tests;
 mod policy;
 pub mod process;
 pub mod runner;

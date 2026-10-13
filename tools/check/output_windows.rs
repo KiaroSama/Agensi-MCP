@@ -38,7 +38,7 @@ impl Pipe {
         }
         // SAFETY: GetFileType only observes the live standard handle.
         match unsafe { GetFileType(handle) } {
-            3 => {},
+            3 => {}
             1 | 2 => return Ok(None),
             _ => return Err(io::ErrorKind::Unsupported.into()),
         }
@@ -55,10 +55,14 @@ impl Pipe {
                 std::ptr::null_mut(),
                 0,
             )
-        } == 0 {
+        } == 0
+        {
             return Err(io::Error::last_os_error());
         }
-        let mut pipe = Self { file, original: None };
+        let mut pipe = Self {
+            file,
+            original: None,
+        };
         if original & 1 == 0 {
             let mode = original | 1; // PIPE_NOWAIT; preserve the existing read mode.
             pipe.set_mode(mode)?;
@@ -75,7 +79,8 @@ impl Pipe {
                 std::ptr::null(),
                 std::ptr::null(),
             )
-        } == 0 {
+        } == 0
+        {
             Err(io::Error::last_os_error())
         } else {
             Ok(())

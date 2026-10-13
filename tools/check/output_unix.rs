@@ -1,7 +1,10 @@
 use std::{
     fs::File,
     io::{self, Write},
-    os::{fd::{AsFd, AsRawFd}, unix::fs::FileTypeExt},
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::fs::FileTypeExt,
+    },
 };
 
 unsafe extern "C" {
@@ -31,7 +34,10 @@ impl Pipe {
         if original < 0 {
             return Err(io::Error::last_os_error());
         }
-        let mut pipe = Self { file, original: None };
+        let mut pipe = Self {
+            file,
+            original: None,
+        };
         if original & NONBLOCK == 0 {
             // SAFETY: SET_FLAGS takes an int; retain all original flags and add only nonblocking mode.
             if unsafe { fcntl(pipe.file.as_raw_fd(), SET_FLAGS, original | NONBLOCK) } < 0 {
