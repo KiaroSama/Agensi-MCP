@@ -14,10 +14,14 @@ pub struct InlineFile {
 
 fn safe_component(part: &str) -> bool {
     let stem = part.split('.').next().unwrap_or("").to_ascii_lowercase();
+    // Win32 also reserves ISO-8859-1 superscript 1, 2 and 3 in COM/LPT device names.
+    // Enforce the same component rules on every host before creating staging files.
     let device = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
         || ["com", "lpt"].iter().any(|prefix| {
-            stem.strip_prefix(prefix)
-                .is_some_and(|n| n.len() == 1 && matches!(n.as_bytes()[0], b'1'..=b'9'))
+            stem.strip_prefix(prefix).is_some_and(|n| {
+                matches!(n, "¹" | "²" | "³")
+                    || (n.len() == 1 && matches!(n.as_bytes()[0], b'1'..=b'9'))
+            })
         });
     !part.is_empty()
         && !matches!(part, "." | "..")
@@ -183,4 +187,118 @@ pub fn save_skill(root: &Path, name: &str, files: &[InlineFile]) -> Result<PathB
     // After successful rename the staging path no longer exists; TempDir's drop
     // tolerates that. Explicit close would report NotFound despite a successful install.
     installed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InlineFile, safe_component, save_skill};
+    use std::{fs, path::Path};
+
+    fn fixture() -> tempfile::TempDir {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join(".tmp");
+        fs::create_dir_all(&scratch).expect("Create project-local test scratch");
+        tempfile::Builder::new()
+            .prefix("skill device-")
+            .tempdir_in(scratch)
+            .expect("Create isolated skill fixture")
+    }
+
+    #[test]
+    fn all_documented_windows_device_components_are_rejected() {
+        let mut devices: Vec<String> = ["CON", "PRN", "AUX", "NUL"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for prefix in ["COM", "LPT"] {
+            for digit in "123456789¹²³".chars() {
+                devices.push(format!("{prefix}{digit}"));
+            }
+        }
+        assert_eq!(devices.len(), 28);
+        for device in devices {
+            for spelling in [device.clone(), device.to_ascii_lowercase()] {
+                for extension in ["", ".txt", ".tar.gz"] {
+                    let component = format!("{spelling}{extension}");
+                    assert!(!safe_component(&component), "Reserved device: {component}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn superscript_device_paths_fail_before_staging_or_publication() {
+        let root = fixture();
+        let skills = root.path().join("skills");
+        let protected = skills.join("existing/SKILL.md");
+        fs::create_dir_all(protected.parent().expect("Existing skill parent"))
+            .expect("Create protected fixture");
+        fs::write(&protected, b"original authorized fixture").expect("Write protected fixture");
+        for device in ["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"] {
+            for path in [
+                device.to_owned(),
+                format!("{}.txt", device.to_ascii_lowercase()),
+                format!("assets/{device}.tar.gz"),
+                format!("{device}/note.md"),
+                format!("assets\\{}\\note.md", device.to_ascii_lowercase()),
+            ] {
+                let files = [
+                    InlineFile {
+                        path: "SKILL.md".into(),
+                        content: "# Synthetic valid entrypoint".into(),
+                    },
+                    InlineFile {
+                        path,
+                        content: "Synthetic fixture data".into(),
+                    },
+                ];
+                let error = save_skill(root.path(), "candidate", &files)
+                    .expect_err("Reserved device must be rejected before opening a path");
+                assert_eq!(error.to_string(), "Unsafe skill file path refused.");
+                assert!(!skills.join("candidate").exists());
+                let entries: Vec<_> = fs::read_dir(&skills)
+                    .expect("Inspect skill directory")
+                    .map(|entry| entry.expect("Skill directory entry").file_name())
+                    .collect();
+                assert_eq!(entries.len(), 1, "No staging or partial install may remain");
+                assert_eq!(entries[0], "existing");
+                assert_eq!(
+                    fs::read(&protected).expect("Protected bytes"),
+                    b"original authorized fixture"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn device_near_misses_and_multilingual_paths_still_install() {
+        let root = fixture();
+        let mut files = vec![InlineFile {
+            path: "skill.md".into(),
+            content: "# Synthetic entrypoint".into(),
+        }];
+        for path in [
+            "COM10.txt",
+            "COM¹x.txt",
+            "LPT²-note.md",
+            "NUL-archive.txt",
+            "資料/本文.md",
+            "راهنما/نمونه.txt",
+            ".hidden/data.txt",
+            "components/readme.md",
+        ] {
+            files.push(InlineFile {
+                path: path.into(),
+                content: "Synthetic multilingual fixture".into(),
+            });
+        }
+        let installed = save_skill(root.path(), "valid-package", &files)
+            .expect("Normal Unicode and device-prefix names must remain supported");
+        assert!(installed.join("SKILL.md").is_file());
+        for file in files.iter().skip(1) {
+            assert_eq!(
+                fs::read(installed.join(&file.path)).expect("Exact accepted file bytes"),
+                file.content.as_bytes()
+            );
+        }
+    }
 }
