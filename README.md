@@ -428,7 +428,10 @@ conversion, revenue or causality. No private/acquired marketplace instructions r
 
 New perrun UTF-8 `logs/agensi-native_YYYY-MM-DD_HH-mm-ss_UTC_<pid>_<uuid>.log`. Registration
 uses unique `logs/register_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log` files; bounded CI checks use
-`logs/check_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log`. The check runner refuses linked log paths,
+`logs/check_YYYY-MM-DD_HH-mm-ss_UTC_<uuid>.log`. The native release identity guard uses
+`logs/release_YYYY-MM-DD_HH-mm-ss_UTC_<pid>_<uuid>.log`; Windows menu checks use the same naming
+form with `menu-tests`. The independent audit uses `audit-blackbox` logs inside its owned temporary
+invocation; successful scratch is removed, failed diagnostics are retained for review. The check runner refuses linked log paths,
 owns its exclusive UTF-8 log stream, and enables safe DEBUG status with `--debug`. Entries:
 `[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [COMPONENT] Message`. Safe startup/failure/shutdown metadata only;
 no protocol bodies, proxy credentials/tokens/auth URLs. File-init failure uses stderr. Vendor debug

@@ -212,6 +212,13 @@ fn bootstrap_command(args: Vec<OsString>, inherit_input: bool) -> i32 {
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
+        if platform::restrict_stdio_inheritance().is_err() {
+            eprintln!(
+                "[{} UTC] [ERROR] [check] Cannot restrict bootstrap handle inheritance; payload omitted.",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            );
+            return 1;
+        }
     }
     match command.status() {
         Ok(status) => exit_code(status),

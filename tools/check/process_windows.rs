@@ -68,6 +68,7 @@ unsafe extern "system" {
     fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
     fn GetExitCodeProcess(process: Handle, code: *mut u32) -> i32;
     fn GetStdHandle(kind: u32) -> Handle;
+    fn SetHandleInformation(handle: Handle, mask: u32, flags: u32) -> i32;
     fn ReadFile(
         file: Handle,
         buffer: *mut c_void,
@@ -83,6 +84,23 @@ unsafe extern "system" {
         available: *mut u32,
         remaining: *mut u32,
     ) -> i32;
+}
+
+pub fn restrict_stdio_inheritance() -> io::Result<()> {
+    // Rust duplicates explicitly selected stdio but inherits every other inheritable handle.
+    // Clear originals before duplication so grandchildren cannot retain unselected pipe aliases.
+    for kind in [-10_i32, -11, -12] {
+        // SAFETY: this bootstrap owns its standard handles; querying transfers no ownership.
+        let handle = unsafe { GetStdHandle(kind as u32) };
+        if handle.is_null() || handle as isize == -1 {
+            continue;
+        }
+        // SAFETY: change only inheritance on this live standard handle, not its validity or access.
+        if unsafe { SetHandleInformation(handle, 1, 0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 pub fn read_gate() -> io::Result<()> {

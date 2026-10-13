@@ -409,8 +409,26 @@ fn main() {
             test_missing_executable_fails_without_traceback,
         ),
     ];
+    let selected = if args.is_empty() {
+        None
+    } else if args.len() == 1 {
+        args[0].to_str().and_then(|arg| arg.strip_prefix("--case="))
+    } else {
+        None
+    };
+    if !args.is_empty()
+        && !selected.is_some_and(|name| tests.iter().any(|(known, _)| *known == name))
+    {
+        eprintln!("Unknown focused runner case; no contracts executed.");
+        std::process::exit(2);
+    }
     let mut failures = 0;
+    let mut executed = 0;
     for (name, test) in tests {
+        if selected.is_some_and(|selected| selected != name) {
+            continue;
+        }
+        executed += 1;
         eprintln!("Starting RunnerTests.{name}");
         let started = Instant::now();
         let passed = std::panic::catch_unwind(test).is_ok();
@@ -421,6 +439,6 @@ fn main() {
         );
         failures += usize::from(!passed);
     }
-    eprintln!("runner contracts:18 failures:{failures}");
+    eprintln!("runner contracts:{executed} failures:{failures}");
     std::process::exit(i32::from(failures != 0));
 }
