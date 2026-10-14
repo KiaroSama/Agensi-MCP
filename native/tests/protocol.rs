@@ -235,7 +235,7 @@ async fn device_timezone_metadata_and_qualified_replies_reach_upstream_as_utc() 
         expected["params"]["_meta"]["openai/userLocation"]["timezone"] = json!("UTC");
         expected["params"]["_meta"]["timezoneOffset"] = json!(0);
         assert_eq!(read(&mut remote_read).await, expected);
-        let ask = json!({"jsonrpc":"2.0","id":"device-request","method":"fixture/device-info"});
+        let ask = json!({"jsonrpc":"2.0","id":"device-request","method":"fixture/device-info","params":{}});
         write(&mut remote_write, &ask).await;
         assert_eq!(read(&mut owner_read).await, ask);
         write(
