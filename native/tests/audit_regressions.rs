@@ -341,7 +341,7 @@ async fn route_change_during_token_acquisition_prevents_upstream_contact() {
         });
         let response = client
             .post(format!("http://{address}/mcp"))
-            .body("{}")
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#)
             .send()
             .await
             .unwrap();
