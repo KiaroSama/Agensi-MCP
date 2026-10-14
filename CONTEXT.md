@@ -51,3 +51,7 @@ _Avoid_: Skill Package
 **Ownership Access**: Personal entitlement to use a purchased skill through the service, not an offline package or redistribution right.
 **Dollar Credit**: Marketplace balance measured in dollars, including fractional amounts.
 **Purchase Approval**: The user's explicit agreement to a specific skill, current amount and payment route.
+
+**Device Timezone Metadata**: Structured information explicitly describing the local device's timezone, not a task's scheduling timezone.
+**Fixed UTC Identity**: A timezone identity with zero offset throughout the year, independent of location or daylight saving.
+**Domain Timezone**: A timezone chosen for task meaning, such as an event or meeting, rather than device telemetry.

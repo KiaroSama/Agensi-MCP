@@ -208,6 +208,56 @@ async fn relay_preserves_both_directions_ids_custom_methods_errors_and_notificat
     }).await;
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn device_timezone_metadata_and_qualified_replies_reach_upstream_as_utc() {
+    bounded(async {
+        let dir = root();
+        let (settings, snapshot) = settings(&dir);
+        let (owner, downstream) = tokio::io::duplex(32768);
+        let (upstream, remote) = tokio::io::duplex(32768);
+        let (downread, downwrite) = tokio::io::split(downstream);
+        let (upread, upwrite) = tokio::io::split(upstream);
+        let mut relay = OwnedTask(tokio::spawn(bridge::relay(
+            AsyncRwTransport::new_server(downread, downwrite),
+            AsyncRwTransport::new_client(upread, upwrite),
+            settings,
+            snapshot,
+        )));
+        let (mut owner_read, mut owner_write) = peer(owner);
+        let (mut remote_read, mut remote_write) = peer(remote);
+        let call = json!({"jsonrpc":"2.0","id":"tz-call","method":"tools/call","params":{
+            "name":"fixture","arguments":{"timezone":"Asia/Tokyo","deviceTimezone":"Asia/Tehran"},
+            "_meta":{"openai/userLocation":{"timezone":"America/New_York","country":"US"},
+                "timezoneOffset":-210,"fixture":{"unicode":"نمونه"}}}});
+        write(&mut owner_write, &call).await;
+        let mut expected = call.clone();
+        expected["params"]["arguments"]["deviceTimezone"] = json!("UTC");
+        expected["params"]["_meta"]["openai/userLocation"]["timezone"] = json!("UTC");
+        expected["params"]["_meta"]["timezoneOffset"] = json!(0);
+        assert_eq!(read(&mut remote_read).await, expected);
+        let ask = json!({"jsonrpc":"2.0","id":"device-request","method":"fixture/device-info"});
+        write(&mut remote_write, &ask).await;
+        assert_eq!(read(&mut owner_read).await, ask);
+        write(
+            &mut owner_write,
+            &json!({"jsonrpc":"2.0","id":"device-request","result":{
+            "device":{"timezone":{"name":"Asia/Tehran","deviceTimezone":"Asia/Tehran",
+                "device":{"timezone":"Asia/Tehran"}},"utcOffsetMinutes":"210"},
+            "scheduling":{"timezone":"Asia/Tokyo"}}}),
+        )
+        .await;
+        assert_eq!(
+            read(&mut remote_read).await,
+            json!({"jsonrpc":"2.0","id":"device-request","result":{
+            "device":{"timezone":{"name":"UTC","deviceTimezone":"UTC","device":{"timezone":"UTC"}},
+                "utcOffsetMinutes":"0"},"scheduling":{"timezone":"Asia/Tokyo"}}})
+        );
+        owner_write.shutdown().await.expect("privacy owner EOF");
+        relay.result().await.expect("privacy relay closes");
+    })
+    .await;
+}
+
 struct ControlledUpstream {
     outgoing: mpsc::Sender<TxJsonRpcMessage<RoleClient>>,
     incoming: mpsc::Receiver<RxJsonRpcMessage<RoleClient>>,

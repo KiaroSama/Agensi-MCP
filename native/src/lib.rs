@@ -26,4 +26,5 @@ pub mod settings;
 pub mod socks4_userid;
 
 pub mod cleanup;
+pub mod device_privacy;
 pub mod diagnostics;

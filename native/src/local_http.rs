@@ -107,6 +107,19 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
     if !crate::storage::matches(&state.settings, &state.snapshot) || state.cancel.is_cancelled() {
         return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect.");
     }
+    if parts.method == Method::POST && body.is_empty() {
+        return error(StatusCode::BAD_REQUEST, "Empty MCP POST body refused.");
+    }
+    let body = match crate::device_privacy::body(&body) {
+        Ok(Some(bytes)) => bytes.into(),
+        Ok(None) => body,
+        Err(_) => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "MCP device metadata inspection failed.",
+            );
+        }
+    };
     let token = match tokio::select! {
         _ = state.cancel.cancelled() => return error(StatusCode::SERVICE_UNAVAILABLE, "Route changed; reconnect."),
         token = tokio::time::timeout(Duration::from_secs(20), state.credentials.token()) => token,
@@ -141,7 +154,11 @@ async fn forward(State(state): State<Arc<HttpState>>, request: Request) -> Respo
     for (name, value) in &parts.headers {
         let key = name.as_str();
         if key == "mcp-method" || key == "mcp-name" || key.starts_with("mcp-param-") {
-            upstream = upstream.header(name, value);
+            upstream = if let Some(fixed) = crate::device_privacy::header(key) {
+                upstream.header(name, fixed)
+            } else {
+                upstream.header(name, value)
+            };
         }
     }
     let response = tokio::select! {

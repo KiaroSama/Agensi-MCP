@@ -47,6 +47,8 @@ corresponding source. `BUILD-INFO.txt` records its source commit. Extract into a
 the directory layout; don't move only the executable. An upgrade should not overwrite existing proxy,
 authentication or operational files. Old versions remain available as explicit rollback downloads.
 
+The `2.1.5` patch normalizes recognized structured device timezone metadata to fixed UTC/zero
+in both stdio and local HTTP, without changing OS/browser settings or domain scheduling inputs.
 The `2.1.4` patch rejects all documented Windows COM/LPT superscript device aliases in
 skill-file paths on every platform before staging; valid Unicode and near-miss names remain supported.
 The `2.1.3` patch bounds developer-runner writes when a downstream data-pipe consumer stops
@@ -196,8 +198,34 @@ selection remain unchanged. Proxy-host DNS can still be local. TLS certificates 
 
 Proxy-side resolution prevents local destination DNS, but the provider may use a resolver in another
 country or an anycast address. Matching proxy egress country and resolver country cannot be guaranteed
-by this application. It adds no timezone metadata/header; UTC log timestamps are not sent upstream.
-Browser login/checkout routing and browser timezone remain outside this bridge.
+by this application. It does not collect the OS timezone or inject absent timezone fields; UTC log
+timestamps are local. Browser login/checkout routing and browser timezone remain outside this bridge.
+
+### Device timezone privacy
+
+An always-on outbound policy applies to stdio and local HTTP. Existing recognized structured device
+zone fields become `UTC` (zero offset all year); numeric offsets become `0`, string offsets become
+`"0"`. It covers requests, notifications and structured client replies before upstream transmission:
+
+- Device-qualified keys: `deviceTimezone`, `systemTimezone`, `clientTimezone`, `browserTimezone`,
+  `localTimezone`, and the same prefixes with `TimezoneOffset`, `TimezoneOffsetMinutes`, `UtcOffset`,
+  `UtcOffsetMinutes` or `UtcOffsetSeconds`; ASCII case and snake/kebab/dot variants are accepted.
+- Inside `_meta` or explicit `device`, `system`, `browser`, `clientInfo`, `clientContext`,
+  `deviceInfo`, `deviceContext`, `systemInfo`, `systemContext`, `browserInfo`, `browserContext` and
+  `userLocation` objects: `timezone`, `tz`, `timezoneId`, `ianaTimezone` and the bare offset keys above.
+  Namespaced objects such as `_meta["openai/userLocation"].timezone` are supported.
+- Zone objects normalize existing `name`/`id`/`zone` and offset members. Unsupported recognized zone
+  value shapes become `UTC` rather than retaining the original value. Device-qualified
+  `mcp-param-*` routing hints also become UTC/0; ordinary `timezone`/`x-timezone` headers stay excluded.
+
+Unchanged HTTP messages keep their original bytes; malformed JSON fails before authorization/egress.
+No OS/browser settings, saved credentials, location coordinates or absent fields are changed. A bare
+business `arguments.timezone` or `mcp-param-timezone` remains unchanged. Content/text/prompt/code/files,
+schemas/defaults/enums/examples, error data and opaque `requestState` are not inspected. Generic
+elicitation answers cannot reliably be distinguished from scheduling answers and are not rewritten.
+This is a documented structured-metadata policy, **not** universal free-text/encoded-data filtering,
+browser fingerprint protection, or prevention of timezone/location inference from IP/account history.
+MCP itself does not define a required timezone field; vendor hints are not proof Agensi requests them.
 
 No direct/alternate fallback or environment NO_PROXY bypass. Invalid/unreachable selected proxy blocks
 traffic. A route change invalidates old relay within the200ms watcher; reconnect clients. Unknown

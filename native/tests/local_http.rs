@@ -335,6 +335,55 @@ async fn modern_metadata_and_sse_bytes_survive_but_local_credentials_and_timezon
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn device_metadata_body_and_headers_are_utc_but_domain_content_survives() {
+    bounded(async {
+        let mut fixture = Fixture::new(false).await;
+        let body = serde_json::json!({"jsonrpc":"2.0","id":"privacy-1","method":"tools/call","params":{
+            "name":"fixture","arguments":{"timezone":"Asia/Tokyo","deviceTimezone":"Asia/Tehran",
+                "text":"deviceTimezone: Asia/Tehran — نمونه"},
+            "_meta":{"openai/userLocation":{"timezone":"America/New_York","country":"US"},
+                "device":{"timezoneOffset":-210}}}});
+        let response = fixture.post(serde_json::to_vec(&body).unwrap())
+            .header("mcp-param-device-timezone", "Asia/Tehran")
+            .header("mcp-param-system-utc-offset-minutes", "210")
+            .header("mcp-param-timezone", "Asia/Tokyo").send().await.unwrap();
+        assert_eq!(response.text().await.unwrap(), MODERN_SSE);
+        let request = fixture.observed.recv().await.unwrap();
+        let mut expected = body;
+        expected["params"]["arguments"]["deviceTimezone"] = serde_json::json!("UTC");
+        expected["params"]["_meta"]["openai/userLocation"]["timezone"] = serde_json::json!("UTC");
+        expected["params"]["_meta"]["device"]["timezoneOffset"] = serde_json::json!(0);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&request.body).unwrap(), expected);
+        assert_eq!(request.headers["mcp-param-device-timezone"], "UTC");
+        assert_eq!(request.headers["mcp-param-system-utc-offset-minutes"], "0");
+        assert_eq!(request.headers["mcp-param-timezone"], "Asia/Tokyo");
+        fixture.stop().await;
+    }).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn invalid_privacy_inspection_fails_before_authorization_or_egress() {
+    bounded(async {
+        let mut fixture = Fixture::new(false).await;
+        for body in [
+            "",
+            "not JSON",
+            "[]",
+            "{}",
+            r#"{"jsonrpc":"2.0","params": {"deviceTimezone":"Asia/Tehran"}"#,
+        ] {
+            assert_eq!(
+                fixture.post(body).send().await.unwrap().status(),
+                StatusCode::BAD_REQUEST
+            );
+            fixture.assert_no_egress();
+        }
+        fixture.stop().await;
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn host_and_origin_rejections_happen_before_tokens_or_upstream_contact() {
     bounded(async {
         let mut fixture = Fixture::new(false).await;

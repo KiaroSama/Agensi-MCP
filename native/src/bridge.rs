@@ -47,6 +47,10 @@ where
                 let Some(message) = message else { break Ok(()); };
                 if !crate::storage::matches(&settings, &snapshot) { break Err(anyhow::anyhow!("Route changed; reconnect Agensi.")); }
                 if pending.len() >= 64 { break Err(anyhow::anyhow!("Pending request limit reached; no replay.")); }
+                let message = match crate::device_privacy::outgoing(message) {
+                    Ok(message) => message,
+                    Err(error) => break Err(error),
+                };
                 pending.push(upstream.send(message).map(|r| r.map_err(|_| anyhow::anyhow!("Upstream request failed; no replay or direct fallback."))).boxed());
             }
             message = upstream.receive() => {
