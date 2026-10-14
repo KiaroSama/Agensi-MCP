@@ -144,6 +144,46 @@ fn normalize(value: &mut Value) -> Result<bool> {
     Ok(changed)
 }
 
+/// Normalize recognized structured device metadata without collecting the OS timezone.
+pub fn outgoing(message: ClientJsonRpcMessage) -> Result<ClientJsonRpcMessage> {
+    // rmcp stores decoded _meta in Extensions; serialize the merged wire envelope.
+    let mut value = serde_json::to_value(&message)
+        .map_err(|_| anyhow::anyhow!("Device metadata serialization failed."))?;
+    if !normalize(&mut value)? {
+        return Ok(message);
+    }
+    serde_json::from_value(value)
+        .map_err(|_| anyhow::anyhow!("Device metadata normalization failed."))
+}
+
+/// Return new UTF-8 bytes only when privacy fields changed; retain other wire bytes.
+pub fn body(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut value: Value =
+        serde_json::from_slice(bytes).map_err(|_| anyhow::anyhow!("Invalid MCP JSON body."))?;
+    ensure!(
+        value.is_object() && value["jsonrpc"] == "2.0",
+        "Invalid MCP message envelope."
+    );
+    if !normalize(&mut value)? {
+        return Ok(None);
+    }
+    serde_json::to_vec(&value)
+        .map(Some)
+        .map_err(|_| anyhow::anyhow!("Device metadata serialization failed."))
+}
+
+/// Only device-qualified routing hints are normalized; bare tool arguments are not telemetry.
+pub fn header(name: &str) -> Option<&'static str> {
+    let field = qualified(&key(name.strip_prefix("mcp-param-")?))?;
+    Some(match field {
+        Field::Zone => "UTC",
+        Field::Offset => "0",
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,44 +252,4 @@ mod tests {
         assert_eq!(header("mcp-param-client-timezone-offset"), Some("0"));
         assert_eq!(header("mcp-param-timezone"), None);
     }
-}
-
-/// Normalize recognized structured device metadata without collecting the OS timezone.
-pub fn outgoing(message: ClientJsonRpcMessage) -> Result<ClientJsonRpcMessage> {
-    // rmcp stores decoded _meta in Extensions; serialize the merged wire envelope.
-    let mut value = serde_json::to_value(&message)
-        .map_err(|_| anyhow::anyhow!("Device metadata serialization failed."))?;
-    if !normalize(&mut value)? {
-        return Ok(message);
-    }
-    serde_json::from_value(value)
-        .map_err(|_| anyhow::anyhow!("Device metadata normalization failed."))
-}
-
-/// Return new UTF-8 bytes only when privacy fields changed; retain other wire bytes.
-pub fn body(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
-    if bytes.is_empty() {
-        return Ok(None);
-    }
-    let mut value: Value =
-        serde_json::from_slice(bytes).map_err(|_| anyhow::anyhow!("Invalid MCP JSON body."))?;
-    ensure!(
-        value.is_object() && value["jsonrpc"] == "2.0",
-        "Invalid MCP message envelope."
-    );
-    if !normalize(&mut value)? {
-        return Ok(None);
-    }
-    serde_json::to_vec(&value)
-        .map(Some)
-        .map_err(|_| anyhow::anyhow!("Device metadata serialization failed."))
-}
-
-/// Only device-qualified routing hints are normalized; bare tool arguments are not telemetry.
-pub fn header(name: &str) -> Option<&'static str> {
-    let field = qualified(&key(name.strip_prefix("mcp-param-")?))?;
-    Some(match field {
-        Field::Zone => "UTC",
-        Field::Offset => "0",
-    })
 }
