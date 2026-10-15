@@ -15,7 +15,7 @@ source files. The original tooling remains recoverable at commit
 | Original tooling | Rust target / coverage |
 |---|---|
 | Bounded subprocess guard | `tools/check/`, `check_runner`: 18 named byte/progress/deadline/ownership/logging contracts |
-| Release identity policy | `check-run release`, `check_release`: eight stable-version/tag/main-branch contracts |
+| Release identity policy | `check-run release`, `check_release`: eight stable-version/tag/main-branch contracts plus isolated script containment, packaging and collector controls |
 | Published operator guidance | `operator`: six static contracts, not an agent-effectiveness benchmark |
 | Native Windows menu | `menu`: six actual redirected-input/EOF/alias/status contracts |
 | Independent OAuth/MCP loopback fixture | `tests/audit/`, `audit_blackbox`: 98 CLI/wire/filesystem contracts |
@@ -23,7 +23,11 @@ source files. The original tooling remains recoverable at commit
 `tests/fixtures/audit-inventory.json` was extracted from the successful source CI run 38399416532,
 artifact 11812889295, on the pinned commit above. It guards exact case identities, not just the count.
 The independent harness launches a copied executable with synthetic state and a private loopback CA;
-it does not replace black-box observations with calls into the runtime implementation.
+it does not replace black-box observations with calls into the runtime implementation. The original98
+identities/order remain unchanged. A separate extension inventory defines eight current sign-in/stdio
+shutdown controls and three dedicated Linux TLS-proxy controls; reports validate the two inventories
+independently and distinguish historical versus extension counts. New controls are implemented but
+not certified by historical CI receipts; consult the exact current run's reports.
 
 Observable parity is byte-exact for child output and structural for JSON. Ordered fixture lists remain
 ordered. Timestamps, execution IDs and process IDs are nondeterministic. Rust errors use sanitized
