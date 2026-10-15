@@ -23,9 +23,16 @@ $finalChecksum = $finalArchive + '.sha256'
 $publishedArchive = $false
 $publishedChecksum = $false
 $hash = $null
+$publishedSignatures = @{}
+$signatureHashes = @{}
+. (Join-Path $PSScriptRoot 'signing-common.ps1')
+$version = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'Cargo.toml'), $utf8), '(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value
 Push-Location $root
 try {
-    if ((Test-Path -LiteralPath $finalArchive) -or (Test-Path -LiteralPath $finalChecksum)) { throw 'Release output already exists; use an empty output directory.' }
+    foreach ($path in @($finalArchive, $finalChecksum, ($finalArchive + '.sig'), ($finalChecksum + '.sig'))) { if (Test-Path -LiteralPath $path) { throw 'Release output already exists; use an empty output directory.' } }
+    $sha = (& git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot identify source commit.' }
+    & (Join-Path $PSScriptRoot 'verify-release.ps1') -Path $BinaryPath -Platform $Platform -SourceCommit $sha -Version $version
     [IO.Directory]::CreateDirectory($payload) | Out-Null
     # Only committed public files enter a download; never copy a user's working installation.
     $sourceArchive = Join-Path $stage 'source.zip'
@@ -34,10 +41,11 @@ try {
     Expand-Archive -LiteralPath $sourceArchive -DestinationPath $payload
     [IO.Directory]::CreateDirectory((Join-Path $payload 'bin')) | Out-Null
     Copy-Item -LiteralPath $BinaryPath -Destination (Join-Path $payload "bin/$executable")
+    Copy-Item -LiteralPath ($BinaryPath + '.sig') -Destination (Join-Path $payload "bin/$executable.sig")
     if (-not $windowsPackage) { & chmod +x (Join-Path $payload "bin/$executable"); if ($LASTEXITCODE -ne 0) { throw 'Cannot set executable permission.' } }
     $sha = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify source commit.' }
-    [IO.File]::WriteAllText((Join-Path $payload 'BUILD-INFO.txt'), "Platform: $Platform`nSource commit: $sha`n", $utf8)
+    [IO.File]::WriteAllText((Join-Path $payload 'BUILD-INFO.txt'), "Platform: $Platform`nPublisher: KiaroSama`nVersion: $version`nSource commit: $sha`nTrust: private self-signed; not publicly trusted or notarized; no trusted timestamp`n", $utf8)
     $foreignCwd = Join-Path $stage 'foreign-cwd'
     [IO.Directory]::CreateDirectory($foreignCwd) | Out-Null
     Push-Location $foreignCwd
@@ -74,6 +82,7 @@ try {
     $originalHash = (Get-FileHash -LiteralPath $BinaryPath -Algorithm SHA256).Hash
     $extractedHash = (Get-FileHash -LiteralPath (Join-Path $extracted "bin/$executable") -Algorithm SHA256).Hash
     if ($originalHash -ne $extractedHash) { throw 'Archive changed executable bytes.' }
+    & (Join-Path $PSScriptRoot 'verify-release.ps1') -Path (Join-Path $extracted "bin/$executable") -Platform $Platform -SigningDirectory (Join-Path $extracted 'signing') -SourceCommit $sha -Version $version
     Push-Location $foreignCwd
     try {
         $status = (& (Join-Path $extracted "bin/$executable") status | Out-String) | ConvertFrom-Json
@@ -82,6 +91,10 @@ try {
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     $checksumText = "$hash  $archiveName`n"
     [IO.File]::WriteAllText(($archive + '.sha256'), $checksumText, $utf8)
+    foreach ($path in @($archive, ($archive + '.sha256'))) {
+        & (Join-Path $PSScriptRoot 'sign-release.ps1') -Path $path
+        $signatureHashes[$path + '.sig'] = (Get-FileHash -LiteralPath ($path + '.sig') -Algorithm SHA256).Hash
+    }
     if (Test-Path -LiteralPath $finalArchive) { throw 'Release archive destination appeared concurrently.' }
     if (Test-Path -LiteralPath $finalChecksum) { throw 'Release checksum destination appeared concurrently.' }
     # Both files are verified before no-overwrite publication; this is not crash-atomic pair publication.
@@ -89,10 +102,16 @@ try {
     $publishedArchive = $true
     [IO.File]::Move(($archive + '.sha256'), $finalChecksum, $false)
     $publishedChecksum = $true
+    foreach ($source in $signatureHashes.Keys) {
+        $destination = Join-Path $dist ([IO.Path]::GetFileName($source))
+        [IO.File]::Move($source, $destination, $false)
+        $publishedSignatures[$destination] = $signatureHashes[$source]
+    }
     Write-Output "Packaged and startup-verified: $archiveName"
 } catch {
     # Never remove preexisting or externally replaced outputs during handled-error compensation.
     try {
+        foreach ($path in $publishedSignatures.Keys) { if ([IO.File]::Exists($path) -and (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ceq $publishedSignatures[$path]) { [IO.File]::Delete($path) } }
         if ($publishedChecksum -and [IO.File]::Exists($finalChecksum) -and [IO.File]::ReadAllText($finalChecksum, $utf8) -ceq $checksumText) { [IO.File]::Delete($finalChecksum) }
         if ($publishedArchive -and [IO.File]::Exists($finalArchive) -and (Get-FileHash -LiteralPath $finalArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hash) { [IO.File]::Delete($finalArchive) }
     } catch { [Console]::Error.WriteLine('Release-output compensation incomplete; inspect owned outputs before retrying.') }

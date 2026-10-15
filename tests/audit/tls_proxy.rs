@@ -3,7 +3,7 @@ use crate::fixture::Certificates;
 use anyhow::{Result, ensure};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -20,8 +20,12 @@ pub struct TlsProxy {
     pub proxy_tls: Arc<AtomicUsize>,
     pub origin_tcp: Arc<AtomicUsize>,
     pub origin_tls: Arc<AtomicUsize>,
+    pub direct_tcp: Arc<AtomicUsize>,
+    pub direct_tls: Arc<AtomicUsize>,
+    reject_proxy: Arc<AtomicBool>,
     shutdown: watch::Sender<bool>,
     task: Option<JoinHandle<Result<()>>>,
+    observer: Option<JoinHandle<Result<()>>>,
 }
 impl TlsProxy {
     pub async fn start(proxy: &Certificates, origin: &Certificates) -> Result<Self> {
@@ -36,6 +40,8 @@ impl TlsProxy {
         let origin_tcp = Arc::new(AtomicUsize::new(0));
         let origin_tls = Arc::new(AtomicUsize::new(0));
         let (shutdown, mut stopped) = watch::channel(false);
+        let reject_proxy = Arc::new(AtomicBool::new(false));
+        let rejected = reject_proxy.clone();
         let (proxy_acceptor, origin_acceptor) = (proxy.acceptor.clone(), origin.acceptor.clone());
         let (requests, accepted, handshakes) =
             (connects.clone(), origin_tcp.clone(), origin_tls.clone());
@@ -50,6 +56,7 @@ impl TlsProxy {
                         let (socket, address) = socket?;
                         ensure!(address.ip().is_loopback(), "Non-loopback TLS proxy peer");
                         proxy_accepted.fetch_add(1, Ordering::SeqCst);
+                        if rejected.load(Ordering::SeqCst) { continue; }
                         let (tls, count, handshakes) = (proxy_acceptor.clone(), requests.clone(), proxy_handshakes.clone());
                         peers.spawn(async move {
                             let _ = timeout(Duration::from_secs(8), async {
@@ -96,29 +103,83 @@ impl TlsProxy {
             proxy_tls,
             origin_tcp,
             origin_tls,
+            direct_tcp: Arc::new(AtomicUsize::new(0)),
+            direct_tls: Arc::new(AtomicUsize::new(0)),
+            reject_proxy,
             shutdown,
             task: Some(task),
+            observer: None,
         })
+    }
+    pub async fn observe_direct(&mut self, certificates: &Certificates) -> Result<()> {
+        let listener = TcpListener::bind(("127.0.0.1", 443)).await?;
+        let (tcp, tls) = (self.direct_tcp.clone(), self.direct_tls.clone());
+        let acceptor = certificates.acceptor.clone();
+        let mut stopped = self.shutdown.subscribe();
+        self.observer = Some(tokio::spawn(async move {
+            let mut peers = JoinSet::new();
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = stopped.changed() => break,
+                    _ = peers.join_next(), if !peers.is_empty() => {},
+                    socket = listener.accept(), if peers.len() < 16 => {
+                        let (socket, address) = socket?;
+                        ensure!(address.ip().is_loopback(), "Non-loopback direct observer peer");
+                        tcp.fetch_add(1, Ordering::SeqCst);
+                        let (acceptor, count) = (acceptor.clone(), tls.clone());
+                        peers.spawn(async move {
+                            let _ = timeout(Duration::from_secs(8), async {
+                                let mut socket = acceptor.accept(socket).await?;
+                                count.fetch_add(1, Ordering::SeqCst);
+                                crate::fixture::serve_http(&mut socket).await
+                            }).await;
+                        });
+                    }
+                }
+            }
+            peers.abort_all();
+            while peers.join_next().await.is_some() {}
+            Ok(())
+        }));
+        Ok(())
+    }
+    pub fn reset_direct(&self) {
+        self.direct_tcp.store(0, Ordering::SeqCst);
+        self.direct_tls.store(0, Ordering::SeqCst);
+    }
+    pub fn fail_proxy(&self) {
+        self.reject_proxy.store(true, Ordering::SeqCst);
     }
     pub async fn close(&mut self) -> Result<()> {
         let _ = self.shutdown.send(true);
-        if let Some(mut task) = self.task.take() {
+        let mut failed = false;
+        for task in [self.task.take(), self.observer.take()]
+            .into_iter()
+            .flatten()
+        {
+            let mut task = task;
             match timeout(Duration::from_secs(2), &mut task).await {
-                Ok(result) => result??,
+                Ok(Ok(Ok(()))) => {}
+                Ok(_) => failed = true,
                 Err(_) => {
                     task.abort();
                     let _ = task.await;
-                    anyhow::bail!("TLS proxy shutdown deadline");
+                    failed = true;
                 }
             }
         }
+        ensure!(!failed, "TLS fixture task cleanup failed");
         Ok(())
     }
 }
 impl Drop for TlsProxy {
     fn drop(&mut self) {
         let _ = self.shutdown.send(true);
-        if let Some(task) = self.task.take() {
+        for task in [self.task.take(), self.observer.take()]
+            .into_iter()
+            .flatten()
+        {
             task.abort();
         }
     }

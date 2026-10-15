@@ -9,6 +9,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+fn source_commit(value: Option<&str>) -> &str {
+    value
+        .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .unwrap_or("unknown")
+}
+
 pub async fn doctor(root: &Path) -> Result<Value> {
     let cfg = config::load(root)?;
     let session = FileCredentials::new(root).load().await;
@@ -25,7 +31,8 @@ pub async fn doctor(root: &Path) -> Result<Value> {
         }
     };
     Ok(
-        json!({"version":env!("CARGO_PKG_VERSION"),"route_mode":cfg.mode,"selected":cfg.selected,
+        json!({"version":env!("CARGO_PKG_VERSION"),"publisher":"KiaroSama",
+        "source_commit":source_commit(option_env!("AGENSI_SOURCE_COMMIT")),"route_mode":cfg.mode,"selected":cfg.selected,
         "saved_profiles":cfg.profiles.len(),"local_http_port":settings::http_port(&cfg)?,"session":state,
         "paths":{"session":".state/auth/rust-session.json","temporary":".tmp","logs":"logs","build_cache":".cache/cargo"},
         "network_checked":false,"warning":"Session metadata does not prove token refresh or live account access."}),
@@ -193,4 +200,24 @@ async fn dns_check(root: &Path, snapshot: &[u8], route: &network::RoutedClient) 
     }
     route_unchanged(root, snapshot)?;
     resolver_summary(&get_json(route, &format!("https://bash.ws/dnsleak/test/{id}?json")).await?)
+}
+
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn source_identity_requires_an_exact_ascii_commit() {
+        let commit = "0123456789abcdefABCDEF0123456789abcdef0123";
+        assert_eq!(super::source_commit(Some(commit)), commit);
+        for value in [
+            None,
+            Some(""),
+            Some("0123456789abcdefABCDEF0123456789abcdef012"),
+            Some("0123456789abcdefABCDEF0123456789abcdef01234"),
+            Some("g123456789abcdefABCDEF0123456789abcdef0123"),
+            Some(" 123456789abcdefABCDEF0123456789abcdef0123"),
+            Some("é123456789abcdefABCDEF0123456789abcdef012"),
+        ] {
+            assert_eq!(super::source_commit(value), "unknown");
+        }
+    }
 }

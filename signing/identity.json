@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "publisher": "KiaroSama",
+  "trust": "private-self-signed",
+  "leaf_sha256": "7708265abbc148eaee4e664ac950a4d3ff83903ccbb93c7d08882c17078c7cb8",
+  "root_sha256": "f2afebc680945c32500123415716a4092822b8ccb4cd75a38bec1ccadbbb72ce",
+  "leaf_sha1": "0e043a4b772c77759134929a8db72af48a2cc28f",
+  "not_before_utc": "2026-10-15T22:08:17.0000000Z",
+  "not_after_utc": "2027-10-15T22:13:17.0000000Z",
+  "notarized": false,
+  "trusted_timestamp": false
+}

@@ -40,6 +40,7 @@ impl ScriptInstallation {
             "audit-dependencies.ps1",
             "package-release.ps1",
             "collect-ci-evidence.ps1",
+            "signing-common.ps1",
         ] {
             fs::copy(
                 source.join("scripts").join(name),
@@ -133,6 +134,34 @@ fn test_nonmain_release() {
     assert!(policy::validate("2.1.0", "v2.1.0", "refs/heads/feature", true).is_err());
 }
 #[test]
+fn reviewed_signing_branch_is_exact_and_never_a_generic_bypass() {
+    let allowed = [
+        "refs/heads/fix/private-signed-release",
+        "KiaroSama/Agensi-MCP",
+        "KiaroSama",
+        "workflow_dispatch",
+    ];
+    assert!(policy::reviewed_signing_branch(
+        allowed[0], allowed[1], allowed[2], allowed[3]
+    ));
+    for (index, rejected) in [
+        (0, "refs/heads/feature/unreviewed"),
+        (1, "other/Agensi-MCP"),
+        (2, "other"),
+        (3, "pull_request"),
+    ] {
+        let mut candidate = allowed;
+        candidate[index] = rejected;
+        assert!(!policy::reviewed_signing_branch(
+            candidate[0],
+            candidate[1],
+            candidate[2],
+            candidate[3]
+        ));
+    }
+}
+
+#[test]
 fn test_prerelease_policy() {
     assert!(policy::validate("2.1.0-beta", "v2.1.0-beta", "refs/heads/main", true).is_err());
 }
@@ -144,7 +173,7 @@ fn build_and_audit_scripts_contain_child_scratch_and_restore_environment() {
 param($Root, $Foreign)
 $ErrorActionPreference = 'Stop'
 $utf8 = [Text.UTF8Encoding]::new($false)
-$names = @('CARGO_HOME','CARGO_TARGET_DIR','CARGO_BUILD_JOBS','TEMP','TMP','TMPDIR')
+$names = @('CARGO_HOME','CARGO_TARGET_DIR','CARGO_BUILD_JOBS','TEMP','TMP','TMPDIR','AGENSI_SOURCE_COMMIT')
 foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, ('caller-'+$name), 'Process') }
 $global:FixtureCalls = [Collections.Generic.List[object]]::new()
 $global:FixtureFail = 'none'
@@ -212,7 +241,7 @@ cargo() {
 export -f cargo
 for fixture_failure in 0 1; do
     export fixture_failure
-    source "$root/scripts/build.sh"
+    source "$root/scripts/build.sh" --debug
     result=$?
     if [[ "$fixture_failure" == 0 ]]; then [[ "$result" == 0 ]] || exit 93; else [[ "$result" == 23 ]] || exit 94; fi
     [[ "$PWD" == "$foreign" && "$CARGO_HOME" == caller-home && "$CARGO_TARGET_DIR" == caller-target && "$CARGO_BUILD_JOBS" == caller-jobs && "$TEMP" == caller-temp && "$TMP" == caller-tmp && "$TMPDIR" == caller-tmpdir ]] || exit 95
@@ -266,7 +295,13 @@ $utf8 = [Text.UTF8Encoding]::new($false)
 $platform = if ($IsWindows) { 'windows-x64' } elseif ($IsMacOS) { if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'macos-arm64' } else { 'macos-x64' } } else { 'linux-x64' }
 $extension = if ($IsWindows) { '.zip' } else { '.tar.gz' }
 $binary = Join-Path $Root $(if ($IsWindows) { 'input.exe' } else { 'input' })
-[IO.File]::WriteAllText((Join-Path $Root 'Cargo.toml'), '[package]', $utf8)
+[IO.File]::WriteAllText((Join-Path $Root 'Cargo.toml'), "[package]`nversion = `"2.1.6`"", $utf8)
+# This fixture isolates publication transactions. Real cryptographic/native controls run separately in CI.
+$global:FixtureVerifyCalls = 0
+[IO.File]::WriteAllText((Join-Path $Root 'scripts/verify-release.ps1'), '$global:FixtureVerifyCalls++; if (-not [IO.File]::Exists($Path+".sig")) { throw "Missing fixture signature." }', $utf8)
+[IO.File]::WriteAllText((Join-Path $Root 'scripts/verify-release.ps1'), 'param($Path,$Platform,$SigningDirectory,$SourceCommit,$Version)' + "`n" + [IO.File]::ReadAllText((Join-Path $Root 'scripts/verify-release.ps1'),$utf8), $utf8)
+[IO.File]::WriteAllText((Join-Path $Root 'scripts/sign-release.ps1'), 'param($Path) [IO.File]::WriteAllText(($Path+".sig"),"fixture-signature",[Text.UTF8Encoding]::new($false))', $utf8)
+[IO.File]::WriteAllText(($binary+'.sig'), 'fixture-signature', $utf8)
 [IO.File]::WriteAllText((Join-Path $Root 'run.ps1'), '# fixture root', $utf8)
 & git -C $Root init --quiet
 & git -C $Root add Cargo.toml run.ps1
@@ -281,7 +316,7 @@ if (-not $failed -or (Test-Path -LiteralPath $archive) -or (Test-Path -LiteralPa
 [IO.File]::WriteAllText((Join-Path $Root '.claude-plugin/plugin.json'), '{"name":"fixture"}', $utf8)
 & git -C $Root add .claude-plugin/plugin.json
 & git -C $Root -c core.hooksPath=hooks-disabled -c commit.gpgsign=false -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m manifest
-foreach ($preexisting in @($archive,$checksum)) {
+foreach ($preexisting in @($archive,$checksum,($archive+'.sig'),($checksum+'.sig'))) {
     [IO.File]::WriteAllText($preexisting, 'preexisting-sentinel', $utf8)
     $failed = $false
     try { & (Join-Path $Root 'scripts/package-release.ps1') -Platform $platform -BinaryPath $binary } catch { $failed = $true }
@@ -291,7 +326,8 @@ foreach ($preexisting in @($archive,$checksum)) {
 & (Join-Path $Root 'scripts/package-release.ps1') -Platform $platform -BinaryPath $binary
 $expected = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ([IO.File]::ReadAllText($checksum,$utf8) -cne ($expected+'  '+[IO.Path]::GetFileName($archive)+"`n")) { throw 'Published checksum does not match verified archive.' }
-[IO.File]::Delete($archive); [IO.File]::Delete($checksum)
+if ($global:FixtureVerifyCalls -lt 3 -or -not [IO.File]::Exists($archive+'.sig') -or -not [IO.File]::Exists($checksum+'.sig')) { throw 'Signature verification or signature publication bypassed.' }
+[IO.File]::Delete($archive); [IO.File]::Delete($checksum); [IO.File]::Delete($archive+'.sig'); [IO.File]::Delete($checksum+'.sig')
 $global:FixtureArchive = $archive
 $global:FixtureChecksum = $checksum
 $global:ReplacePublished = $false
@@ -313,7 +349,7 @@ foreach ($replace in @($false,$true)) {
     if (-not $failed) { throw 'Controlled publication failure reported success.' }
     if ($replace) {
         if ([IO.File]::ReadAllText($archive,$utf8) -cne 'external-archive' -or [IO.File]::ReadAllText($checksum,$utf8) -cne 'external-checksum') { throw 'Concurrent output replacements were removed.' }
-    } elseif ((Test-Path -LiteralPath $archive) -or (Test-Path -LiteralPath $checksum)) { throw 'Handled failure left owned final outputs.' }
+    } elseif (@($archive,$checksum,($archive+'.sig'),($checksum+'.sig') | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'Handled failure left owned final outputs.' }
 }
 if (@(Get-ChildItem -LiteralPath (Join-Path $Root 'dist') -Directory).Count -ne 0 -or $PWD.Path -cne $Foreign) { throw 'Owned staging or caller CWD leaked.' }
 'Packaging failure/retry/hash, preexisting outputs and conditional compensation passed.'

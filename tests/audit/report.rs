@@ -207,7 +207,7 @@ impl Report {
             })
             .count();
         let coverage = if phase == "tls-proxy" {
-            json!({"plan":"P022","coverage":"partial","executed_controls":3,"blocked_requirements":[{"requirement":"real-cli-no-direct-fallback","verdict":"needs_validation","reason":"Hardcoded public destination cannot be independently observed as loopback direct traffic; no egress sandbox or endpoint override is approved"},{"requirement":"Windows/macOS-custom-CA-CLI-parity","verdict":"needs_validation","reason":"Platform verifier does not use the Linux child SSL_CERT_FILE trust contract; no system trust mutation allowed"}]})
+            json!({"plan":"P022","coverage":if failed == 0 && extension_count == 4 {"complete-for-this-platform"} else {"incomplete"},"executed_controls":extension_count,"temporary_hosted_native_trust":true,"production_tls_unchanged":true,"platform_scope":std::env::consts::OS})
         } else {
             Value::Null
         };

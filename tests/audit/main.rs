@@ -1,4 +1,5 @@
 //! Explicit Cargo `harness = false` executable; all cases launch the independent native CLI.
+mod ci_support;
 mod filesystem;
 mod fixture;
 mod http;

@@ -202,9 +202,20 @@ pub async fn cases(context: &mut Context, report: &mut Report) -> Result<()> {
 pub async fn tls_proxy_cases(context: &mut Context, report: &mut Report) -> Result<()> {
     use crate::{fixture::Certificates, tls_proxy::TlsProxy};
     use std::sync::atomic::Ordering;
-    for mode in ["trusted", "untrusted-proxy", "untrusted-origin"] {
+    crate::ci_support::validate().await?;
+    for mode in [
+        "trusted",
+        "untrusted-proxy",
+        "untrusted-origin",
+        "no-direct",
+    ] {
         let mut project = context.project()?;
         let result: Result<()> = async {
+            if context.certificates.is_none() {
+                context.certificates = Some(Certificates::new(&context.work.join("fixture-tls"))?);
+            }
+            let preparation = context.certificates.as_ref().expect("Preparation CA").ca.clone();
+            project.ci_trust(&[&preparation]).await?;
             let (_, signed_in) = context.signin(&mut project, "http", false).await?;
             ensure!(signed_in, "TLS proxy preparation signin failed");
             let directory = project.root.join(".tmp/tls-proxy");
@@ -217,7 +228,25 @@ pub async fn tls_proxy_cases(context: &mut Context, report: &mut Report) -> Resu
                 if mode != "untrusted-proxy" { pem.extend(std::fs::read(&proxy_cert.ca)?); }
                 if mode != "untrusted-origin" { pem.extend(std::fs::read(&origin_cert.ca)?); }
                 std::fs::write(&trusted, pem)?;
+                let mut roots = Vec::new();
+                if mode != "untrusted-proxy" { roots.push(proxy_cert.ca.as_path()); }
+                if mode != "untrusted-origin" { roots.push(origin_cert.ca.as_path()); }
+                project.ci_trust(&roots).await?;
                 project.trust_fixture(&trusted);
+                let mut direct_ready = false;
+                let mut direct_positive_tcp = 0;
+                let mut direct_positive_tls = 0;
+                if mode == "no-direct" {
+                    fixture.observe_direct(&origin_cert).await?;
+                    project.config(json!({"schema":1,"mode":"direct","selected":null,"profiles":[]}))?;
+                    let positive = project.run(&["probe"], None, Duration::from_secs(8)).await?;
+                    direct_positive_tcp = fixture.direct_tcp.load(Ordering::SeqCst);
+                    direct_positive_tls = fixture.direct_tls.load(Ordering::SeqCst);
+                    direct_ready = positive.success() && positive.json.as_ref().is_some_and(|value| value["connected"] == true && value["tools"] == 1 && value["account_read"] == true) && direct_positive_tcp > 0 && direct_positive_tls > 0;
+                    ensure!(direct_ready, "Actual CLI direct observer positive failed");
+                    fixture.reset_direct();
+                    fixture.fail_proxy();
+                }
                 project.config(json!({"schema":1,"mode":"proxy","selected":"fixture","profiles":[{"name":"fixture","url":format!("https://127.0.0.1:{}",fixture.port)}]}))?;
                 let run = project.run(&["probe"], None, Duration::from_secs(8)).await?;
                 let connects = fixture.connects.load(Ordering::SeqCst);
@@ -228,9 +257,10 @@ pub async fn tls_proxy_cases(context: &mut Context, report: &mut Report) -> Resu
                 let passed = match mode {
                     "trusted" => run.success() && run.json.as_ref().is_some_and(|value| value["connected"] == true && value["tools"] == 1 && value["account_read"] == true) && connects > 0 && tcp == connects && tls == connects,
                     "untrusted-proxy" => !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls == 0 && connects == 0 && tcp == 0 && tls == 0,
-                    _ => !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls > 0 && connects > 0 && tcp == connects && tls == 0,
+                    "untrusted-origin" => !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls > 0 && connects > 0 && tcp == connects && tls == 0,
+                    _ => direct_ready && !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls == 0 && connects == 0 && fixture.direct_tcp.load(Ordering::SeqCst) == 0,
                 };
-                report.extension(&format!("extension-tls-proxy-{mode}"), passed, json!({"exit":run.exit,"timeout":run.timed_out,"proxy_tcp":proxy_tcp,"proxy_tls":proxy_tls,"connect_count":connects,"origin_tcp":tcp,"origin_tls":tls,"proxy_selected":true}))
+                report.extension(&format!("extension-tls-proxy-{mode}"), passed, json!({"exit":run.exit,"timeout":run.timed_out,"proxy_tcp":proxy_tcp,"proxy_tls":proxy_tls,"connect_count":connects,"origin_tcp":tcp,"origin_tls":tls,"proxy_selected":true,"direct_observer_ready":direct_ready,"direct_positive_tcp":direct_positive_tcp,"direct_positive_tls":direct_positive_tls,"direct_tcp":fixture.direct_tcp.load(Ordering::SeqCst),"direct_tls":fixture.direct_tls.load(Ordering::SeqCst),"native_ci_isolation":true}))
             }.await;
             fixture.close().await?;
             execution

@@ -12,6 +12,7 @@
     {"case": "extension-bridge-route-error", "phase": "oauth", "status": "PASS"},
     {"case": "extension-tls-proxy-trusted", "phase": "tls-proxy", "status": "PASS"},
     {"case": "extension-tls-proxy-untrusted-proxy", "phase": "tls-proxy", "status": "PASS"},
-    {"case": "extension-tls-proxy-untrusted-origin", "phase": "tls-proxy", "status": "PASS"}
+    {"case": "extension-tls-proxy-untrusted-origin", "phase": "tls-proxy", "status": "PASS"},
+    {"case": "extension-tls-proxy-no-direct", "phase": "tls-proxy", "status": "PASS"}
   ]
 }

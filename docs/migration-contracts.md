@@ -25,7 +25,7 @@ artifact 11812889295, on the pinned commit above. It guards exact case identitie
 The independent harness launches a copied executable with synthetic state and a private loopback CA;
 it does not replace black-box observations with calls into the runtime implementation. The original98
 identities/order remain unchanged. A separate extension inventory defines eight current sign-in/stdio
-shutdown controls and three dedicated Linux TLS-proxy controls; reports validate the two inventories
+shutdown controls and four dedicated native-platform TLS-proxy controls; reports validate the two inventories
 independently and distinguish historical versus extension counts. New controls are implemented but
 not certified by historical CI receipts; consult the exact current run's reports.
 
@@ -69,24 +69,24 @@ source is preserved by Git history. Fixtures contain only synthetic non-sensitiv
 | Shared session identity/scope persistence | auth stored credential epoch/issuer/scopes, legacy import and refresh-lock tests |
 | Windows file-URL preload startup | Retired: native executable has no ESM/preload; native entry/root/menu tests replace startup contract |
 | HTTP/SOCKS4/SOCKS5/proxy DNS and no direct bypass | network loopback real handshake/forwarding and dead-proxy tests |
-| TLS validation | Typed untrusted-certificate rejection and trusted fixture control; dedicated Linux HTTPS-proxy/custom-CA CLI controls implemented, final CI runtime evidence pending; Windows/macOS positive parity blocked on native-trust capability |
+| TLS validation | Typed untrusted-certificate rejection and trusted fixture control; four dedicated HTTPS-proxy/custom-CA/no-direct-fallback real-CLI cases on each native CI platform, actual final exact-SHA runtime evidence required |
 | Actual stdio/HTTP passthrough | protocol original initialize, IDs/custom/resources/server requests/errors/notifications/cancel/EOF tests |
 | Route change invalidates connection | protocol idle-route-change test and pending capacity/control tests |
 
 ## HTTPS-proxy trust verification scope
 
-The dedicated `audit_blackbox --phase=tls-proxy` implements three separately ordered extension cases:
-trusted TLS proxy → CONNECT → trusted TLS origin, untrusted proxy and untrusted origin. Linux CI runs
-that partial phase once under wall120/idle20 and retains `.tmp/tls-proxy-results.json`; the default
-`all` phase retains the original98 inventory plus its separate OAuth/runtime extensions and excludes
-these dedicated TLS-proxy cases. Implementation is not a passing result: final exact-SHA hosted
-runtime evidence remains pending. The requested fourth no-direct-fallback CLI observer remains
-`needs_validation`/BLOCKED: closed proxy/origin listeners alone cannot prove that no bypass was attempted.
+The dedicated `audit_blackbox --phase=tls-proxy` implements four separately ordered extension cases:
+trusted TLS proxy → CONNECT → trusted TLS origin, untrusted proxy, untrusted origin and an observable
+no-direct-fallback refusal with a live origin observer. Each native CI platform runs this phase once
+through `scripts/test-tls-proxy-ci.ps1`, with owned wall/idle guards, and retains sanitized results plus
+cleanup status. The default `all` phase retains original98 cases plus its separate OAuth/runtime
+extensions and excludes these dedicated TLS cases. Implementation is not a passing result: inspect
+actual final exact-SHA hosted reports before claiming all-platform parity.
 
-Only fixture-child trust files are used; no OS trust store is changed and no real proxy/account traffic
-is involved. Windows/macOS real-CLI positive custom-CA parity remains BLOCKED because the selected
-native trust path does not offer the same isolated fixture-only trust capability. Ordinary four-platform
-TLS tests are not a substitute, and no all-platform HTTPS-proxy certification is claimed.
+The wrapper permits temporary fixture trust, name mapping and network restrictions only on disposable
+GitHub-hosted runners, then removes its owned changes. No workstation trust/network settings or real
+proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
+these actual CLI proxy/origin observations or successful cleanup.
 
 ## Runtime evidence and limits
 
@@ -128,3 +128,44 @@ cooperative process coordination, not protection against malicious noncooperatin
 No cutover claim is valid with unsupported required proxy/auth behavior or unverified native entry.
 Unit/source parity does not substitute for real integration. Private production traffic/billable calls
 are not replayed. New defaults/error handling cannot silently weaken secure behavior to match a defect.
+
+## Private release-signing contract
+
+A completed release build (omit `-Debug`/`--debug`) requires PowerShell7.4+, approved encrypted leaf
+signing inputs and the matching pinned public identity. It embeds the checkout commit, signs and
+verifies before replacing the installed binary; missing signer or verification failure preserves the
+old installation. macOS private signing runs only on the approved disposable hosted runner; normal
+users should use verified release downloads. No compiler, root trust, paid account or signing-key
+installation happens automatically. The registration/menu runtime retains its existing PowerShell7.0
+floor; only new signing/verification tools require7.4.
+
+Signing tools write one UTF-8 UTC structured log per invocation under `logs/` with INFO/ERROR status,
+no passwords, key data or child diagnostic payload. Logging-init failure falls back safely to stderr;
+there is no automatic retention deletion. Close handlers on completion, review logs locally and attach
+only sanitized status for support. Private inputs are encrypted locally, passed only to necessary
+same-repository manual signing steps, and removed from child process environments. The private root
+key never enters CI. Certificate rotation is a separately reviewed operation.
+
+Obtain the public signing files and verification scripts from a separately trusted checkout at the
+release commit; confirm the leaf/root fingerprints in `signing/identity.json` through that channel.
+A public key from the same untrusted download alone does not establish identity. Download each
+archive and checksum together with their `.sig` files. PowerShell7.4+ verifies bytes before extraction:
+
+```bash
+pwsh -NoProfile -File scripts/verify-release.ps1 -Path ./agensi-mcp-windows-x64.zip
+pwsh -NoProfile -File scripts/verify-release.ps1 -Path ./agensi-mcp-windows-x64.zip.sha256
+```
+
+After extraction, verify `bin/agensi-mcp.exe` with `-Platform windows-x64` (or the appropriate Unix
+filename/platform), `-SourceCommit` equal to the exact release SHA and `-Version 2.1.6`. The verifier
+checks detached bytes, public-key/leaf/root pins, code-signing purpose and certificate validity.
+Windows additionally requires native Authenticode file-binding success plus CMS/private-chain checks;
+macOS requires certificate-backed, non-ad-hoc codesign with an exact signer requirement. Linux uses
+pinned RSA3072/SHA256/PKCS1 detached signatures. Only after acceptance does verification execute doctor
+to compare publisher KiaroSama, version and embedded source commit. Archive BUILD-INFO records agree.
+
+This private self-signed CA is not public trust, Apple Developer ID/notarization or a trusted timestamp.
+OS warnings can remain. Never install a root certificate or disable OS protections merely to silence
+them. Expired certificates fail closed; no timestamp-based post-expiry assurance is claimed.
+The four-platform manual release gates and wrong-key/signer/covered-byte controls must actually pass
+before publication; implementation alone is not evidence that signing succeeded on macOS or CI.

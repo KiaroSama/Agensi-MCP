@@ -79,6 +79,7 @@ pub struct Project {
     env: BTreeMap<String, std::ffi::OsString>,
     pub processes: Vec<NativeProcess>,
     pub fixture: Option<Fixture>,
+    ci_lease: Option<crate::ci_support::Lease>,
 }
 impl Project {
     fn new(source: &Path, work: &Path) -> Result<Self> {
@@ -121,6 +122,7 @@ impl Project {
             env,
             processes: Vec::new(),
             fixture: None,
+            ci_lease: None,
         })
     }
     fn command(&self) -> Command {
@@ -137,6 +139,12 @@ impl Project {
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         command
+    }
+    pub async fn ci_trust(&mut self, roots: &[&Path]) -> Result<()> {
+        let lease = self
+            .ci_lease
+            .get_or_insert_with(|| crate::ci_support::Lease::new(&self.root, &self.binary));
+        lease.trust(roots).await
     }
     pub fn trust_fixture(&mut self, ca: &Path) {
         self.env
@@ -259,6 +267,9 @@ impl Project {
         }
         self.processes.clear();
         self.fixture.take();
+        if let Some(lease) = self.ci_lease.take() {
+            failed |= lease.close().await.is_err();
+        }
         if let Some(directory) = self.directory.take() {
             if failed {
                 let _ = directory.keep();

@@ -107,10 +107,15 @@ Or inspect the native executable directly:
 ```
 
 Existing published builds through `2.1.5` are unsigned; hashes do not establish publisher trust.
-New downloadable builds, publication and local replacement are blocked until the owner approves a
-publisher identity and verifiable platform signing contract. Current manual CI with an empty release
-tag performs internal validation only, not a distributable release. Preserve the installed working
-version meanwhile. Follow local policy; never disable OS protections to bypass missing trust.
+From `2.1.6`, the release contract requires publisher **KiaroSama**: certificate-backed Windows
+Authenticode/macOS codesign plus RSA3072/SHA256 detached signatures over exact binaries, archives
+and checksum files. This is an approved **private self-signed identity**, not public-CA trust,
+Apple Developer ID/notarization or a trusted timestamp. OS warnings can remain; never disable OS
+protections or install a root certificate just to silence them. A release is available only after
+its actual four-platform signing and verification gates pass.
+
+Verification commands, pinned-key trust, expiry and signing-tool prerequisites are in the
+[private release-signing contract](docs/migration-contracts.md#private-release-signing-contract).
 
 ### 3. Run on macOS or Linux
 
@@ -533,17 +538,21 @@ own Creator Studio analytics require separately authorized account access.
 ## Optional source build (developers only)
 
 Ready-made downloads are the normal installation path. To modify the Rust source, clone this repository
-and use an existing Rust1.99+ toolchain with native compiler prerequisites. Building is optional:
+and use an existing Rust1.99+ toolchain with native compiler prerequisites. Internal debug builds do
+not replace `bin/` and are not completed distributable builds:
 
 ```bash
-pwsh -NoProfile -File scripts/build.ps1
+pwsh -NoProfile -File scripts/build.ps1 -Debug
 ```
 
 On macOS/Linux:
 
 ```bash
-bash scripts/build.sh
+bash scripts/build.sh --debug
 ```
+
+Completed source builds require approved signing inputs and PowerShell7.4+; see the
+[private release-signing contract](docs/migration-contracts.md#private-release-signing-contract).
 
 Build scripts keep Cargo downloads in `.cache/cargo`, outputs in `target/` and child scratch in
 `.tmp/`; they restore caller environment/location on success or failure. After the installed executable
@@ -608,9 +617,13 @@ do not establish Windows GUI or real client integration. See [migration contract
 CI starts only by an explicit `workflow_dispatch` on the completed source SHA; pushes, PRs and schedules
 do not start validation. The one manual root calls same-commit RustSec and CodeQL workflows; release
 publication waits for both security jobs and all four native platforms plus approved signing readiness.
-An empty release tag runs internal debug/test validation only; a nonempty tag currently fails closed
-before native builds because no approved signing contract is configured. Packaging fixtures use test
-executables as internal validation, not completed distributable app builds. The Linux evidence collector
+An empty release tag runs internal debug/test validation only. A nonempty tag requires exact version,
+approved public pins and encrypted leaf inputs; signing secrets are restricted to the verified owner,
+repository and main or the single reviewed release branch. Publication remains main-only. Packaging
+transaction fixtures use isolated test adapters; actual release controls independently reject wrong
+signers/keys and tampered covered bytes before native/download publication. Four native jobs also run
+the dedicated real-CLI HTTPS proxy/custom-CA phase with disposable trust/network setup and cleanup;
+its results, not ordinary TLS unit tests, establish platform parity. The Linux evidence collector
 intentionally formats only its own CI checkout to export a diagnostic patch after the independent
 blocking formatting check; its output is not an extra PASS.
 

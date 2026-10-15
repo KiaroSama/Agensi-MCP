@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Empty = internal validation only; release requests require an approved signing contract (currently blocked)'
+        description: 'Empty = internal validation; vX.Y.Z = verified private-signed release on main'
         required: false
         type: string
 permissions:
@@ -11,13 +11,27 @@ permissions:
 jobs:
   release-readiness:
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
+    timeout-minutes: 2
     steps:
-      - name: Refuse release builds without the approved signer
-        if: inputs.release_tag != ''
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate approved public signing contract and release ref
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          echo 'Release build blocked: approved publisher identity and platform signing contract are not configured.' >&2
-          exit 1
+          if ($env:REQUESTED_TAG -and ($env:GITHUB_REF -cnotin @('refs/heads/main','refs/heads/fix/private-signed-release') -or $env:GITHUB_REPOSITORY -cne 'KiaroSama/Agensi-MCP' -or $env:GITHUB_ACTOR -cne 'KiaroSama')) { throw 'Private release signing is restricted to the verified owner and reviewed release branch.' }
+          . ./scripts/signing-common.ps1
+          Get-SigningDescriptor | Out-Null
+      - name: Require encrypted signing inputs for a release
+        if: inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama'
+        env:
+          AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
+          AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
+        shell: pwsh
+        run: |
+          & ./scripts/sign-release.ps1 -Path ./target/release/agensi-mcp -Preflight
   dependencies:
     uses: ./.github/workflows/dependency-review.yml
     permissions:
@@ -52,6 +66,7 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
       CARGO_BUILD_JOBS: 4
       RUST_BACKTRACE: 0
+      AGENSI_SOURCE_COMMIT: ${{ github.sha }}
     defaults:
       run:
         shell: pwsh
@@ -141,16 +156,17 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 5
         run: '& $env:CHECK_RUN --wall 120 --idle 20 -- cargo +1.99.0 test --locked --test audit_blackbox -- --source-root . --output .tmp/audit-results.json'
-      - name: Dedicated partial HTTPS proxy and custom-CA controls
-        if: runner.os == 'Linux'
+      - name: Dedicated HTTPS proxy and custom-CA controls on each native platform
         timeout-minutes: 5
-        run: '& $env:CHECK_RUN --wall 120 --idle 20 -- cargo +1.99.0 test --locked --test audit_blackbox -- --source-root . --phase=tls-proxy --output .tmp/tls-proxy-results.json'
+        run: pwsh -NoProfile -File scripts/test-tls-proxy-ci.ps1
       - name: Retain sanitized HTTPS proxy results
-        if: always() && runner.os == 'Linux'
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tls-proxy-regressions-linux
-          path: .tmp/tls-proxy-results.json
+          name: tls-proxy-regressions-${{ matrix.platform }}
+          path: |
+            .tmp/tls-proxy-results.json
+            .tmp/tls-ci-*/cleanup.json
           if-no-files-found: warn
           retention-days: 14
       - name: Retain sanitized black-box results
@@ -169,9 +185,24 @@ jobs:
       - name: Build optimized downloadable executable
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         run: '& $env:CHECK_RUN --wall 900 --idle 180 -- cargo +1.99.0 build --locked --release --bin agensi-mcp'
-      - name: Package and verify extracted download
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-        run: pwsh -NoProfile -File scripts/package-release.ps1 -Platform '${{ matrix.platform }}'
+      - name: Native-sign and verify final executable
+        if: inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama'
+        env:
+          AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
+          AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
+        run: |
+          $name = if ($IsWindows) { 'agensi-mcp.exe' } else { 'agensi-mcp' }
+          $version = '${{ inputs.release_tag }}'.Substring(1)
+          & $env:CHECK_RUN --wall 120 --idle 30 -- pwsh -NoProfile -File scripts/sign-release.ps1 -Path "target/release/$name" -Platform '${{ matrix.platform }}' -SourceCommit $env:GITHUB_SHA -Version $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:CHECK_RUN --wall 120 --idle 30 -- pwsh -NoProfile -File scripts/test-signing.ps1 -Path "target/release/$name" -Platform '${{ matrix.platform }}' -SourceCommit $env:GITHUB_SHA -Version $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package and verify private-signed extracted download
+        if: inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama'
+        env:
+          AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
+          AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
+        run: '& $env:CHECK_RUN --wall 180 --idle 45 -- pwsh -NoProfile -File scripts/package-release.ps1 -Platform ''${{ matrix.platform }}'''
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         with:
@@ -199,11 +230,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agensi-mcp-*
           merge-multiple: true
           path: dist
+      - name: Verify signed archive and checksum bytes
+        shell: pwsh
+        run: |
+          foreach ($file in Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(zip|tar\.gz|sha256)$' }) {
+            & ./scripts/verify-release.ps1 -Path $file.FullName
+          }
+          if (@(Get-ChildItem dist -Filter '*.sig').Count -ne 8) { throw 'Expected signatures for all four archives and checksum files.' }
       - name: Verify checksums and publish new version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -217,5 +258,5 @@ jobs:
           test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 4
           sha256sum -c ./*.sha256
           gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Agensi MCP $RELEASE_TAG" \
-            --notes "CI-built Rust binaries for Windows x64, Linux x64, macOS Apple Silicon and Intel. Extract the archive; no Rust or Node build is required. SHA256 files and source commit are included. Runtime defaults disconnected; bring your own proxy and sign-in." \
-            ./*.zip ./*.tar.gz ./*.sha256
+            --notes "CI-built Rust binaries for Windows x64, Linux x64, macOS Apple Silicon and Intel. Publisher KiaroSama; genuine private self-signed Authenticode/macOS codesign and pinned RSA-SHA256 detached signatures. Not public-CA trusted, Apple-notarized or trusted-timestamped; OS warnings may remain. Verify the public pins and signatures before execution. Extract the archive; no Rust or Node build is required. SHA256 files and exact source commit are included. Runtime defaults disconnected; bring your own proxy and sign-in." \
+            ./*.zip ./*.tar.gz ./*.sha256 ./*.sig

@@ -1,6 +1,26 @@
 use agensi_mcp::diagnostics::{address_summary, resolver_summary, session_summary};
 use serde_json::json;
 
+#[tokio::test]
+async fn doctor_reports_build_identity_without_contacting_the_network() {
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".tmp");
+    std::fs::create_dir_all(&base).unwrap();
+    let dir = tempfile::tempdir_in(base.canonicalize().unwrap()).unwrap();
+    let report = agensi_mcp::diagnostics::doctor(dir.path()).await.unwrap();
+    assert_eq!(report["publisher"], "KiaroSama");
+    assert_eq!(report["version"], "2.1.6");
+    match option_env!("AGENSI_SOURCE_COMMIT") {
+        Some(commit) if commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            assert_eq!(report["source_commit"], commit);
+        }
+        _ => assert_eq!(report["source_commit"], "unknown"),
+    }
+    assert_eq!(report["network_checked"], false);
+    assert_eq!(report["session"]["present"], false);
+    assert_eq!(report["route_mode"], "disconnected");
+    assert!(!dir.path().join(".state/auth/rust-session.json").exists());
+}
+
 #[test]
 fn session_projection_never_exposes_tokens_or_client_identity() {
     let input = json!({"client_id":"private-client-fixture","issuer":"https://issuer.example","token_received_at":100,

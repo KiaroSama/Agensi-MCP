@@ -25,6 +25,18 @@ pub fn validate(
     Ok(())
 }
 
+pub fn reviewed_signing_branch(
+    reference: &str,
+    repository: &str,
+    actor: &str,
+    event: &str,
+) -> bool {
+    reference == "refs/heads/fix/private-signed-release"
+        && repository == "KiaroSama/Agensi-MCP"
+        && actor == "KiaroSama"
+        && event == "workflow_dispatch"
+}
+
 #[derive(Deserialize)]
 struct Manifest {
     package: Package,
@@ -95,11 +107,19 @@ fn execute(
     }
     let result = (|| -> anyhow::Result<String> {
         let document: Manifest = toml::from_str(&fs::read_to_string(manifest)?)?;
+        let reference = env::var("GITHUB_REF").unwrap_or_default();
+        let reviewed = reviewed_signing_branch(
+            &reference,
+            &env::var("GITHUB_REPOSITORY").unwrap_or_default(),
+            &env::var("GITHUB_ACTOR").unwrap_or_default(),
+            &env::var("GITHUB_EVENT_NAME").unwrap_or_default(),
+        );
+        // This exception validates assets only; the publication job remains main-only.
         validate(
             &document.package.version,
             &tag,
-            &env::var("GITHUB_REF").unwrap_or_default(),
-            env::var("GITHUB_ACTIONS").as_deref() == Ok("true"),
+            &reference,
+            env::var("GITHUB_ACTIONS").as_deref() == Ok("true") && !reviewed,
         )
         .map_err(anyhow::Error::msg)?;
         if let Some(output) = env::var_os("GITHUB_OUTPUT").filter(|v| !v.is_empty()) {
