@@ -188,9 +188,12 @@ async fn shutdown_cases(context: &mut Context, report: &mut Report) -> Result<()
                 "eof" => project.processes[index].close_input(),
                 _ => { let disconnected = project.cli(&["disconnect"]).await?; anyhow::ensure!(disconnected.success(), "Route control failed"); }
             }
+            let input_before_wait = project.processes[index].input_open();
             let exit = project.processes[index].wait(Duration::from_secs(9)).await?;
-            report.extension(&format!("extension-bridge-{mode}"), signed_in && ready && exit == Some(if mode == "route-error" {1} else {0}),
-                json!({"protocol_ready":ready,"exit":exit,"elapsed_ms":started.elapsed().as_millis(),"input_held_open":mode != "eof"}))
+            let input_after_wait = project.processes[index].input_open();
+            let input_contract = input_before_wait == (mode != "eof") && input_after_wait == input_before_wait;
+            report.extension(&format!("extension-bridge-{mode}"), signed_in && ready && input_contract && exit == Some(if mode == "route-error" {1} else {0}),
+                json!({"protocol_ready":ready,"exit":exit,"elapsed_ms":started.elapsed().as_millis(),"input_held_open_before_wait":input_before_wait,"input_held_open_after_wait":input_after_wait}))
         }.await;
         project.close().await?;
         result?;

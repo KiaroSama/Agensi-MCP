@@ -419,8 +419,15 @@ impl NativeProcess {
         );
         Ok(())
     }
+    pub fn input_open(&self) -> bool {
+        self.child.stdin.is_some()
+    }
     pub async fn wait(&mut self, bound: Duration) -> Result<Option<i32>> {
-        match timeout(bound, self.child.wait()).await {
+        // Tokio wait closes Child.stdin; hold it separately so waiting cannot manufacture EOF.
+        let stdin = self.child.stdin.take();
+        let result = timeout(bound, self.child.wait()).await;
+        self.child.stdin = stdin;
+        match result {
             Ok(result) => {
                 self.exit = result?.code();
                 Ok(self.exit)
