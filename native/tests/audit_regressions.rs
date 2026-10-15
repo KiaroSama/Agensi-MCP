@@ -1,3 +1,8 @@
+// The same report guard is exercised here; process/hash publication methods belong to its driver.
+#[allow(dead_code)]
+#[path = "../../tests/audit/report.rs"]
+mod audit_report;
+
 use agensi_mcp::{
     auth, config, credentials::FileCredentials, logging::Logger, network, skill_files, storage,
 };
@@ -384,6 +389,67 @@ fn operator_input_fifos_are_rejected_before_blocking_open() {
         assert!(
             rx.recv_timeout(Duration::from_secs(1))
                 .expect("Operator input must not block on a FIFO")
+        );
+    }
+}
+
+#[test]
+fn historical_and_extension_inventories_reject_missing_duplicate_reordered_and_extra_rows() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let historical: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/fixtures/audit-inventory.json"))
+            .expect("Historical inventory");
+    let extension: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/fixtures/audit-extensions.json"))
+            .expect("Extension inventory");
+    let mut rows = historical["cases"]
+        .as_array()
+        .expect("Historical cases")
+        .clone();
+    rows.extend(
+        extension["cases"]
+            .as_array()
+            .expect("Extension cases")
+            .iter()
+            .filter(|row| row["phase"] != "tls-proxy")
+            .map(|row| {
+                let mut row = row.clone();
+                row["inventory"] = serde_json::json!("extension");
+                row
+            }),
+    );
+    for mutation in [
+        "valid",
+        "missing-original",
+        "duplicate-original",
+        "reorder-original",
+        "extra-original",
+        "missing-extension",
+        "duplicate-extension",
+        "reorder-extension",
+        "extra-extension",
+    ] {
+        let directory = root();
+        let mut report = audit_report::Report::new(directory.path(), false).expect("Report");
+        report.rows = rows.clone();
+        match mutation {
+            "missing-original" => { report.rows.remove(0); }
+            "duplicate-original" => report.rows.insert(0, report.rows[0].clone()),
+            "reorder-original" => report.rows.swap(0, 1),
+            "extra-original" => report.rows.push(serde_json::json!({"case":"unexpected-original","status":"PASS"})),
+            "missing-extension" => { report.rows.pop(); }
+            "duplicate-extension" => report.rows.push(report.rows.last().expect("Extension").clone()),
+            "reorder-extension" => report.rows.swap(98, 99),
+            "extra-extension" => report.rows.push(serde_json::json!({"case":"unexpected-extension","status":"PASS","inventory":"extension"})),
+            _ => {}
+        }
+        report
+            .inventory(source, "all")
+            .expect("Inventory guard executes");
+        assert_eq!(
+            report.rows.iter().all(|row| row["status"] == "PASS"),
+            mutation == "valid",
+            "Inventory mutation classification: {mutation}"
         );
     }
 }

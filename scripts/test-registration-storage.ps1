@@ -1,9 +1,13 @@
 #requires -Version 7.0
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot -Parent
+$sourceRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'registration-storage.ps1')
-$fixture = Join-Path $root ('.tmp/registration-audit-' + [guid]::NewGuid().ToString('N'))
-[IO.Directory]::CreateDirectory($fixture) | Out-Null
+$fixture = Join-Path $sourceRoot ('.tmp/registration-audit-' + [guid]::NewGuid().ToString('N'))
+$root = Join-Path $fixture 'installation'
+foreach ($directory in @($fixture, (Join-Path $root 'scripts'), (Join-Path $root 'bin'))) { [IO.Directory]::CreateDirectory($directory) | Out-Null }
+foreach ($name in @('register.ps1', 'registration-storage.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $root "scripts/$name") }
+# Registration validates existence only; no executable is launched by these fixtures.
+[IO.File]::WriteAllBytes((Join-Path $root 'bin/agensi-mcp.exe'), [byte[]]::new(0))
 $utf8 = [Text.UTF8Encoding]::new($false)
 $desktop = Join-Path $fixture 'desktop.json'
 $code = Join-Path $fixture 'explicit-code.json'
@@ -21,6 +25,12 @@ function Assert-Case([bool]$Condition, [string]$Name) {
 function Invoke-IsolatedRegistration([string[]]$Options = @()) {
     & pwsh -NoProfile -File (Join-Path $root 'scripts/register.ps1') @Options -DesktopConfigPath $desktop -CodeConfigPath $code 2>&1 | Out-Null
     return $LASTEXITCODE
+}
+function Invoke-RootValidation([string[]]$Options = @()) {
+    try {
+        & (Join-Path $root 'scripts/register.ps1') @Options -DesktopConfigPath $desktop -CodeConfigPath $code 2>&1 | Out-Null
+        return 0
+    } catch { return 1 }
 }
 function Set-Fixture([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, $utf8) }
 $originalPublish = (Get-Command Publish-RegistrationFile).ScriptBlock
@@ -47,10 +57,63 @@ try {
     $foreign = Read-RegistrationBytes $code
     Assert-Case ((Invoke-IsolatedRegistration @('-DryRun')) -ne 0) 'dry run rejects a foreign Code entry'
     Assert-Case ((Test-RegistrationBytesEqual $beforeDesktop (Read-RegistrationBytes $desktop)) -and (Test-RegistrationBytesEqual $foreign (Read-RegistrationBytes $code))) 'failed validation changes neither target'
-    foreach ($invalid in @('[]', '{"mcpServers":[]}', '{"mcpServers":null}', '{broken')) {
-        Set-Fixture $code $invalid
-        Assert-Case ((Invoke-IsolatedRegistration) -ne 0) 'invalid Code config shape is refused before writing Desktop'
-        Assert-Case (Test-RegistrationBytesEqual $beforeDesktop (Read-RegistrationBytes $desktop)) 'invalid Code config preserves Desktop bytes'
+    $timestampValues = @('2026-10-15T12:34:56Z', '2026-10-15T12:34:56.1234567+05:30', '2026-10-15T12:34:56.7654321-07:00', 'ordinary café text')
+    foreach ($upgrade in @($false, $true)) {
+        $servers = @{ other = @{ env = @{ DATE = $timestampValues[1] } } }
+        if ($upgrade) { $servers.agensi = @{ command = 'node'; args = @((Join-Path $root 'src/bridge.mjs')) } }
+        $text = '{"keep":{"dates":' + (ConvertTo-Json -InputObject $timestampValues -Compress) + ',"nested":[{"":"empty-key","Case":"upper","case":"lower","nullable":null,"$type":"unknown-fixture-type","$id":"literal-id"},[],[null,7,true],["single"],9223372036854775807,1.25]},"mcpServers":' + ($servers | ConvertTo-Json -Depth 10 -Compress) + '}'
+        foreach ($path in @($desktop, $code)) { Set-Fixture $path $text }
+        $options = if ($upgrade) { @('-UpgradeProjectEntry') } else { @() }
+        Assert-Case ((Invoke-IsolatedRegistration $options) -eq 0) 'new and upgraded registrations serialize unrelated JSON'
+        foreach ($path in @($desktop, $code)) {
+            $document = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($path, $utf8))
+            try {
+                $dates = $document.RootElement.GetProperty('keep').GetProperty('dates')
+                for ($index = 0; $index -lt $timestampValues.Count; $index++) {
+                    Assert-Case ($dates[$index].ValueKind -eq [System.Text.Json.JsonValueKind]::String -and $dates[$index].GetString() -ceq $timestampValues[$index]) 'timestamp and Unicode strings retain exact decoded contents'
+                }
+                $nested = $document.RootElement.GetProperty('keep').GetProperty('nested')
+                Assert-Case ($nested[0].GetProperty('').GetString() -ceq 'empty-key' -and $nested[0].GetProperty('Case').GetString() -ceq 'upper' -and $nested[0].GetProperty('case').GetString() -ceq 'lower') 'empty and case-distinct keys survive serialization'
+                Assert-Case ($nested[0].GetProperty('nullable').ValueKind -eq [System.Text.Json.JsonValueKind]::Null -and $nested[1].GetArrayLength() -eq 0 -and $nested[2][0].ValueKind -eq [System.Text.Json.JsonValueKind]::Null -and $nested[2][1].GetInt32() -eq 7 -and $nested[2][2].GetBoolean()) 'nested arrays nulls numbers and booleans retain their types'
+                Assert-Case ($nested[0].GetProperty('$type').GetString() -ceq 'unknown-fixture-type' -and $nested[0].GetProperty('$id').GetString() -ceq 'literal-id') 'JSON metadata stays ordinary unrelated data'
+                Assert-Case ($nested[3].GetArrayLength() -eq 1 -and $nested[3][0].GetString() -ceq 'single' -and $nested[4].GetInt64() -eq [long]::MaxValue -and $nested[5].GetDouble() -eq 1.25) 'single arrays large integers and fractional numbers retain values'
+            } finally { $document.Dispose() }
+        }
+    }
+    foreach ($invalid in @('[]', '[{}]', '[{"mcpServers":{}}]', '[{},{}]', 'null', '"text"', '7', 'true', '{"mcpServers":[]}', '{"mcpServers":null}', '{broken')) {
+        foreach ($target in @($desktop, $code)) {
+            Set-Fixture $desktop '{}'
+            Set-Fixture $code '{}'
+            Set-Fixture $target $invalid
+            $unchangedDesktop = Read-RegistrationBytes $desktop
+            $unchangedCode = Read-RegistrationBytes $code
+            foreach ($dryRun in @($false, $true)) {
+                $options = if ($dryRun) { @('-DryRun') } else { @() }
+                Assert-Case ((Invoke-RootValidation $options) -ne 0) 'normal and dry-run reject invalid roots at either target'
+                Assert-Case ((Test-RegistrationBytesEqual $unchangedDesktop (Read-RegistrationBytes $desktop)) -and (Test-RegistrationBytesEqual $unchangedCode (Read-RegistrationBytes $code))) 'invalid roots preserve both targets byte-for-byte'
+            }
+        }
+    }
+    foreach ($fallback in @($false, $true)) {
+        Set-Fixture $desktop '{}'
+        Set-Fixture $code '{}'
+        $beforeDesktop = Read-RegistrationBytes $desktop
+        $beforeCode = Read-RegistrationBytes $code
+        $logDirectory = Join-Path $root 'logs'
+        if ($fallback) {
+            Remove-Item -LiteralPath $logDirectory -Recurse -Force
+            Set-Fixture $logDirectory 'Controlled logging-init failure.'
+        }
+        $count = if ($fallback) { 0 } else { @(Get-ChildItem -LiteralPath $logDirectory -File).Count }
+        $output = & (Join-Path $root 'scripts/register.ps1') -DryRun -DesktopConfigPath $desktop -CodeConfigPath $code 2>&1 | Out-String
+        Assert-Case ((Test-RegistrationBytesEqual $beforeDesktop (Read-RegistrationBytes $desktop)) -and (Test-RegistrationBytesEqual $beforeCode (Read-RegistrationBytes $code))) 'dry-run preserves both client configurations'
+        Assert-Case ($output.Contains('client configuration files and registrations unchanged') -and -not $output.Contains('no files or registrations changed')) 'dry-run reports only suppressed client mutations'
+        if ($fallback) {
+            Assert-Case ($output.Contains('stderr only (file logging unavailable)') -and [IO.File]::Exists($logDirectory)) 'dry-run accurately reports logging fallback without claiming a file'
+            Remove-Item -LiteralPath $logDirectory -Force
+        } else {
+            Assert-Case ($output.Contains('file log and stderr') -and @(Get-ChildItem -LiteralPath $logDirectory -File).Count -eq ($count + 1)) 'dry-run reports its actual new diagnostic file'
+        }
     }
     foreach ($concurrent in @($false, $true)) {
         Set-Fixture $desktop '{"original":1}'

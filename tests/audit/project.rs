@@ -60,6 +60,7 @@ impl Context {
         if !project.processes[index].ready(false, CLI_BOUND).await {
             return Ok((index, false));
         }
+        project.bind_authorization(index)?;
         let status = project.processes[index]
             .callback(Callback::default())
             .await?;
@@ -136,6 +137,28 @@ impl Project {
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         command
+    }
+    pub fn trust_fixture(&mut self, ca: &Path) {
+        self.env
+            .insert("SSL_CERT_FILE".into(), ca.as_os_str().to_owned());
+        let empty = self.root.join(".tmp/empty-trust-directory");
+        std::fs::create_dir_all(&empty).expect("Empty child-only trust directory");
+        self.env
+            .insert("SSL_CERT_DIR".into(), empty.into_os_string());
+    }
+    pub fn bind_authorization(&self, index: usize) -> Result<()> {
+        let capture = self.processes[index]
+            .capture
+            .lock()
+            .expect("Process capture");
+        let url = capture
+            .authorization
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Authorization not ready"))?;
+        self.fixture
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Missing authorization fixture"))?
+            .authorize(url)
     }
     pub fn config(&self, value: Value) -> Result<()> {
         self.write_json("config.local.json", &value)
@@ -338,6 +361,63 @@ impl NativeProcess {
             return Ok(false);
         }
         Ok(true)
+    }
+    pub async fn initialize(&mut self) -> Result<bool> {
+        let input = json!({"jsonrpc":"2.0","id":7001,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"audit-fixture","version":"1"}}}).to_string() + "\n";
+        timeout(
+            CLI_BOUND,
+            self.child
+                .stdin
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("Missing held stdin"))?
+                .write_all(input.as_bytes()),
+        )
+        .await??;
+        Ok(timeout(CLI_BOUND, async {
+            loop {
+                let changed = self.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if self
+                    .capture
+                    .lock()
+                    .expect("Capture")
+                    .stdout
+                    .split(|byte| *byte == b'\n')
+                    .any(|line| {
+                        serde_json::from_slice::<Value>(line).is_ok_and(|message| {
+                            message["id"] == 7001
+                                && message["result"]["protocolVersion"] == "2025-11-25"
+                                && message["result"]["serverInfo"]["name"] == "audit-fixture"
+                        })
+                    })
+                {
+                    return;
+                }
+                changed.await;
+            }
+        })
+        .await
+        .is_ok())
+    }
+    pub fn close_input(&mut self) {
+        self.child.stdin.take();
+    }
+    #[cfg(unix)]
+    pub fn interrupt(&self) -> Result<()> {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        let pid = self
+            .child
+            .id()
+            .ok_or_else(|| anyhow::anyhow!("Missing owned PID"))?;
+        // SAFETY: signal only this live owned direct child; never a console or unrelated process group.
+        ensure!(
+            unsafe { kill(i32::try_from(pid)?, 2) } == 0,
+            "Owned interrupt delivery failed"
+        );
+        Ok(())
     }
     pub async fn wait(&mut self, bound: Duration) -> Result<Option<i32>> {
         match timeout(bound, self.child.wait()).await {

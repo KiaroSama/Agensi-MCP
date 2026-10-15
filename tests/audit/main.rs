@@ -6,6 +6,7 @@ mod management;
 mod oauth;
 mod project;
 mod report;
+mod tls_proxy;
 
 use anyhow::{Result, bail, ensure};
 use project::Context;
@@ -68,7 +69,9 @@ fn parse_args(arguments: impl Iterator<Item = std::ffi::OsString>) -> Result<Opt
                     .next()
                     .and_then(|value| value.into_string().ok())
                     .ok_or_else(|| {
-                        anyhow::anyhow!("--phase requires management/filesystem/oauth/http/all")
+                        anyhow::anyhow!(
+                            "--phase requires management/filesystem/oauth/http/tls-proxy/all"
+                        )
                     })?
             }
             Some("--output") => {
@@ -80,7 +83,7 @@ fn parse_args(arguments: impl Iterator<Item = std::ffi::OsString>) -> Result<Opt
             Some("--debug") => debug = true,
             Some("--help" | "-h") => {
                 println!(
-                    "audit_blackbox --source-root PATH --work-root PATH --phase management|filesystem|oauth|http|all --output PATH [--debug]\nIndependent native CLI cases; all traffic terminates in synthetic loopback fixtures.\nComplete filesystem inventory requires Unix. --output is required."
+                    "audit_blackbox --source-root PATH --work-root PATH --phase management|filesystem|oauth|http|tls-proxy|all --output PATH [--debug]\nIndependent native CLI cases; all traffic terminates in synthetic loopback fixtures.\nComplete filesystem inventory requires Unix. --output is required."
                 );
                 return Ok(None);
             }
@@ -88,7 +91,15 @@ fn parse_args(arguments: impl Iterator<Item = std::ffi::OsString>) -> Result<Opt
         }
     }
     ensure!(
-        ["management", "filesystem", "oauth", "http", "all"].contains(&phase.as_str()),
+        [
+            "management",
+            "filesystem",
+            "oauth",
+            "http",
+            "tls-proxy",
+            "all"
+        ]
+        .contains(&phase.as_str()),
         "Invalid audit phase"
     );
     Ok(Some(Parsed {
@@ -198,6 +209,11 @@ fn argument_contracts(source: &Path) -> Result<()> {
             && split.debug,
         "Audit argument spelling contract failed"
     );
+    ensure!(
+        parse(&["--phase=tls-proxy", "--output=x"])?
+            .is_some_and(|parsed| parsed.phase == "tls-proxy"),
+        "TLS proxy phase not parsed"
+    );
     for args in [
         &["--phase=invalid", "--output=x"][..],
         &["--output="][..],
@@ -278,8 +294,10 @@ async fn run(options: Options) -> Result<bool> {
     let mut context = Context::new(options.source.clone(), work);
     let result: Result<()> = async {
         argument_contracts(&options.source)?;
-        for phase in ["management", "filesystem", "oauth", "http"] {
-            if options.phase != "all" && options.phase != phase {
+        for phase in ["management", "filesystem", "oauth", "http", "tls-proxy"] {
+            if (options.phase == "all" && phase == "tls-proxy")
+                || (options.phase != "all" && options.phase != phase)
+            {
                 continue;
             }
             report.event(
@@ -290,6 +308,7 @@ async fn run(options: Options) -> Result<bool> {
                 "management" => management::cases(&context, &mut report).await?,
                 "filesystem" => filesystem::cases(&mut context, &mut report).await?,
                 "oauth" => oauth::cases(&mut context, &mut report).await?,
+                "tls-proxy" => http::tls_proxy_cases(&mut context, &mut report).await?,
                 _ => http::cases(&mut context, &mut report).await?,
             }
         }

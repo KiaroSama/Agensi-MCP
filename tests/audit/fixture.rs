@@ -21,6 +21,9 @@ use tokio_rustls::{
     rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer},
 };
 
+#[path = "../../native/tests/support/pkce.rs"]
+mod pkce;
+
 pub const ISSUER: &str = "https://auth.agensi-audit.test";
 const RESOURCE: &str = "https://mcp.agensi.io/mcp";
 const HOSTS: [&str; 5] = [
@@ -33,7 +36,7 @@ const HOSTS: [&str; 5] = [
 
 pub struct Certificates {
     pub ca: PathBuf,
-    acceptor: TlsAcceptor,
+    pub(crate) acceptor: TlsAcceptor,
 }
 impl Certificates {
     pub fn new(directory: &Path) -> Result<Self> {
@@ -48,7 +51,9 @@ impl Certificates {
         let ca_cert = ca_params.self_signed(&ca_key)?;
         let issuer = Issuer::from_params(&ca_params, &ca_key);
         let key = KeyPair::generate()?;
-        let mut params = CertificateParams::new(HOSTS.map(str::to_owned).to_vec())?;
+        let mut hosts = HOSTS.map(str::to_owned).to_vec();
+        hosts.push("127.0.0.1".into());
+        let mut params = CertificateParams::new(hosts)?;
         params.distinguished_name.push(DnType::CommonName, HOSTS[0]);
         params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
@@ -81,6 +86,12 @@ struct State {
     pause: Option<(String, Option<String>)>,
     paused: bool,
     resumed: bool,
+    challenge: Option<String>,
+    initial_expiry: u64,
+    reject_refresh: bool,
+    omit_refresh: bool,
+    exchanges: usize,
+    refreshes: usize,
 }
 pub struct Fixture {
     pub port: u16,
@@ -130,6 +141,24 @@ impl Fixture {
             shutdown,
             task: Some(task),
         })
+    }
+    pub fn authorize(&self, url: &url::Url) -> Result<()> {
+        let challenge =
+            pkce::challenge(url).ok_or_else(|| anyhow::anyhow!("Invalid unique S256 challenge"))?;
+        self.state.lock().expect("Fixture state").challenge = Some(challenge);
+        Ok(())
+    }
+    pub fn token_policy(&self, initial_expiry: u64, reject_refresh: bool) {
+        let mut state = self.state.lock().expect("Fixture state");
+        state.initial_expiry = initial_expiry;
+        state.reject_refresh = reject_refresh;
+    }
+    pub fn omit_refresh_token(&self) {
+        self.state.lock().expect("Fixture state").omit_refresh = true;
+    }
+    pub fn token_counts(&self) -> (usize, usize) {
+        let state = self.state.lock().expect("Fixture state");
+        (state.exchanges, state.refreshes)
     }
     pub fn requests(&self) -> Vec<Value> {
         self.state.lock().expect("fixture state").requests.clone()
@@ -318,14 +347,19 @@ async fn handle(
         })
         .await?;
     }
-    let (status, data) = response(method, path, &body)?;
+    let (status, data) = response(method, path, &body, &state)?;
     let encoded = serde_json::to_vec(&data)?;
     tls.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", encoded.len()).as_bytes()).await?;
     tls.write_all(&encoded).await?;
     tls.shutdown().await?;
     Ok(())
 }
-fn response(_method: &str, target: &str, body: &[u8]) -> Result<(u16, Value)> {
+fn response(
+    _method: &str,
+    target: &str,
+    body: &[u8],
+    state: &Mutex<State>,
+) -> Result<(u16, Value)> {
     let path = target.split('?').next().unwrap_or(target);
     Ok(match path {
         "/.well-known/oauth-protected-resource/mcp" | "/.well-known/oauth-protected-resource" => (
@@ -343,10 +377,48 @@ fn response(_method: &str, target: &str, body: &[u8]) -> Result<(u16, Value)> {
                 json!({"client_id":"fixture-client","redirect_uris":request["redirect_uris"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}),
             )
         }
-        "/token" => (
-            200,
-            json!({"access_token":"synthetic-fixture-access","token_type":"Bearer","expires_in":3600,"refresh_token":"synthetic-fixture-refresh","scope":"read install"}),
-        ),
+        "/token" => {
+            let fields: Vec<_> = url::form_urlencoded::parse(body).collect();
+            let grants: Vec<_> = fields
+                .iter()
+                .filter(|(key, _)| key == "grant_type")
+                .collect();
+            let mut state = state.lock().expect("Fixture state");
+            let valid = grants.len() == 1
+                && match grants[0].1.as_ref() {
+                    "authorization_code" => {
+                        let valid = state.challenge.as_ref().is_some_and(|challenge| {
+                            pkce::authorization_form_valid(body, challenge)
+                        });
+                        if valid {
+                            state.exchanges += 1;
+                        }
+                        valid
+                    }
+                    "refresh_token" => {
+                        state.refreshes += 1;
+                        !state.reject_refresh
+                    }
+                    _ => false,
+                };
+            if !valid {
+                (400, json!({"error":"invalid_grant"}))
+            } else {
+                let expiry = if grants[0].1 == "authorization_code" && state.initial_expiry != 0 {
+                    state.initial_expiry
+                } else {
+                    3600
+                };
+                let mut response = json!({"access_token":"synthetic-fixture-access","token_type":"Bearer","expires_in":expiry,"refresh_token":"synthetic-fixture-refresh","scope":"read install"});
+                if state.omit_refresh {
+                    response
+                        .as_object_mut()
+                        .expect("Token response")
+                        .remove("refresh_token");
+                }
+                (200, response)
+            }
+        }
         "/mcp" => {
             let request: Value = if body.is_empty() {
                 json!({})
@@ -377,4 +449,31 @@ fn response(_method: &str, target: &str, body: &[u8]) -> Result<(u16, Value)> {
         }
         _ => (404, json!({"error":"fixture not found"})),
     })
+}
+
+/// The TLS-proxy origin is stateless: a probe needs only the public MCP fixture response.
+pub async fn serve_http<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    stream: &mut S,
+) -> Result<()> {
+    let header = until(stream, b"\r\n\r\n", 65536).await?;
+    let header = std::str::from_utf8(&header)?;
+    let mut lines = header.split("\r\n");
+    let parts: Vec<_> = lines.next().unwrap_or_default().split(' ').collect();
+    ensure!(parts.len() == 3, "Malformed TLS origin request");
+    let mut length = 0;
+    for line in lines {
+        if let Some((key, value)) = line.split_once(':')
+            && key.eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse::<usize>()?;
+        }
+    }
+    ensure!(length <= 2 * 1024 * 1024, "TLS origin body bound");
+    let body = exact(stream, length).await?;
+    let (status, value) = response(parts[0], parts[1], &body, &Mutex::new(State::default()))?;
+    let encoded = serde_json::to_vec(&value)?;
+    stream.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",encoded.len()).as_bytes()).await?;
+    stream.write_all(&encoded).await?;
+    stream.shutdown().await?;
+    Ok(())
 }

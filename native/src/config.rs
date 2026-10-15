@@ -301,7 +301,7 @@ pub fn public_status(config: &Config) -> Value {
                 Ok(url) => json!({ "name": p.name, "protocol": url.scheme(),
                 "host": url.host_str().unwrap_or(""),
                 "port": url.port().unwrap_or(if url.scheme() == "https" { 443 } else { 80 }),
-                "authenticated": !url.username().is_empty() }),
+                "authenticated": !url.username().is_empty() || url.password().is_some() }),
                 // Callers load/validate first; an invalid in-memory profile never exposes its URL.
                 Err(_) => json!({ "name": p.name, "invalid": true }),
             }

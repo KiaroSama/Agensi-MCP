@@ -2,11 +2,17 @@ param([switch]$Debug)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw 'Rust 1.99+ toolchain is required; no automatic global install.' }
-$env:CARGO_HOME = Join-Path $root '.cache/cargo'
-$env:CARGO_TARGET_DIR = Join-Path $root 'target'
-$env:CARGO_BUILD_JOBS = '4'
+$names = @('CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_JOBS', 'TEMP', 'TMP', 'TMPDIR')
+$previous = @{}
+foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 Push-Location $root
 try {
+    $env:CARGO_HOME = Join-Path $root '.cache/cargo'
+    $env:CARGO_TARGET_DIR = Join-Path $root 'target'
+    $env:CARGO_BUILD_JOBS = '4'
+    $tempRoot = Join-Path $root '.tmp'
+    foreach ($path in @($env:CARGO_HOME, $env:CARGO_TARGET_DIR, $tempRoot)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+    foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) { [Environment]::SetEnvironmentVariable($name, $tempRoot, 'Process') }
     $arguments = @('build', '--locked')
     $profile = if ($Debug) { 'debug' } else { 'release' }
     if (-not $Debug) { $arguments += '--release' }
@@ -16,4 +22,7 @@ try {
     [IO.Directory]::CreateDirectory($destination) | Out-Null
     Copy-Item (Join-Path $root "target/$profile/agensi-mcp.exe") (Join-Path $destination 'agensi-mcp.exe')
     Write-Output 'Native binary built in bin/agensi-mcp.exe.'
-} finally { Pop-Location }
+} finally {
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
+    Pop-Location
+}

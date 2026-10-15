@@ -32,21 +32,13 @@ TOML parser, including standard TOML 1.1 syntax in addition to the source parser
 Invalid package versions and malformed or duplicate-key manifests still fail; no manifest regex or
 second interpreter substitutes for parsing.
 
-Developer commands after `cargo build --locked --all-targets`:
-
-```bash
-./target/debug/check-run --wall 90 --idle 20 -- cargo test --locked --test check_runner
-```
-
-```bash
-./target/debug/check-run --wall 30 --idle 15 -- cargo test --locked --test check_release --test operator -- --test-threads=2
-```
-
-On native Windows, invoke `target/debug/check-run.exe` and the `menu` target. On native Linux:
-
-```bash
-./target/debug/check-run --wall 120 --idle 20 -- cargo test --locked --test audit_blackbox -- --source-root . --output .tmp/audit-results.json
-```
+Developer commands and project-local Cargo/temp setup are in [Tests and CI](../README.md#tests-and-ci).
+Bootstrap `check-run`, copy it into `.tmp/` before Cargo reuse (required on Windows), and precompile
+all targets under the compile budget. The [workflow target mapping](../.github/workflows/ci.yml)
+is authoritative: ordinary libtest targets receive `--test-threads=2`; custom `check_runner`,
+Windows-only `menu` and Linux-only `audit_blackbox` run separately with their own arguments.
+Release-policy/script fixtures share the ordinary 180/45 execution budget, not a compilation budget.
+Use `.exe` runner paths on Windows. Do not run a heavy suite locally merely to duplicate hosted CI.
 
 CI precompiles all targets, then selects ordinary tests separately from the Windows-only menu and
 Linux-only black-box harness. A Cargo metadata coverage guard rejects an unmapped test target.
@@ -73,9 +65,24 @@ source is preserved by Git history. Fixtures contain only synthetic non-sensitiv
 | Shared session identity/scope persistence | auth stored credential epoch/issuer/scopes, legacy import and refresh-lock tests |
 | Windows file-URL preload startup | Retired: native executable has no ESM/preload; native entry/root/menu tests replace startup contract |
 | HTTP/SOCKS4/SOCKS5/proxy DNS and no direct bypass | network loopback real handshake/forwarding and dead-proxy tests |
-| TLS validation | TLS untrusted certificate rejection; positive custom-CA HTTPS-proxy parity pending |
+| TLS validation | Typed untrusted-certificate rejection and trusted fixture control; dedicated Linux HTTPS-proxy/custom-CA CLI controls implemented, final CI runtime evidence pending; Windows/macOS positive parity blocked on native-trust capability |
 | Actual stdio/HTTP passthrough | protocol original initialize, IDs/custom/resources/server requests/errors/notifications/cancel/EOF tests |
 | Route change invalidates connection | protocol idle-route-change test and pending capacity/control tests |
+
+## HTTPS-proxy trust verification scope
+
+The dedicated `audit_blackbox --phase=tls-proxy` implements three separately ordered extension cases:
+trusted TLS proxy → CONNECT → trusted TLS origin, untrusted proxy and untrusted origin. Linux CI runs
+that partial phase once under wall120/idle20 and retains `.tmp/tls-proxy-results.json`; the default
+`all` phase retains the original98 inventory plus its separate OAuth/runtime extensions and excludes
+these dedicated TLS-proxy cases. Implementation is not a passing result: final exact-SHA hosted
+runtime evidence remains pending. The requested fourth no-direct-fallback CLI observer remains
+`needs_validation`/BLOCKED: closed proxy/origin listeners alone cannot prove that no bypass was attempted.
+
+Only fixture-child trust files are used; no OS trust store is changed and no real proxy/account traffic
+is involved. Windows/macOS real-CLI positive custom-CA parity remains BLOCKED because the selected
+native trust path does not offer the same isolated fixture-only trust capability. Ordinary four-platform
+TLS tests are not a substitute, and no all-platform HTTPS-proxy certification is claimed.
 
 ## Runtime evidence and limits
 

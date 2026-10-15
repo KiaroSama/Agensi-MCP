@@ -198,3 +198,45 @@ pub async fn cases(context: &mut Context, report: &mut Report) -> Result<()> {
     project.close().await?;
     result
 }
+
+pub async fn tls_proxy_cases(context: &mut Context, report: &mut Report) -> Result<()> {
+    use crate::{fixture::Certificates, tls_proxy::TlsProxy};
+    use std::sync::atomic::Ordering;
+    for mode in ["trusted", "untrusted-proxy", "untrusted-origin"] {
+        let mut project = context.project()?;
+        let result: Result<()> = async {
+            let (_, signed_in) = context.signin(&mut project, "http", false).await?;
+            ensure!(signed_in, "TLS proxy preparation signin failed");
+            let directory = project.root.join(".tmp/tls-proxy");
+            let proxy_cert = Certificates::new(&directory.join("proxy"))?;
+            let origin_cert = Certificates::new(&directory.join("origin"))?;
+            let mut fixture = TlsProxy::start(&proxy_cert, &origin_cert).await?;
+            let execution: Result<()> = async {
+                let trusted = directory.join("trusted.pem");
+                let mut pem = Vec::new();
+                if mode != "untrusted-proxy" { pem.extend(std::fs::read(&proxy_cert.ca)?); }
+                if mode != "untrusted-origin" { pem.extend(std::fs::read(&origin_cert.ca)?); }
+                std::fs::write(&trusted, pem)?;
+                project.trust_fixture(&trusted);
+                project.config(json!({"schema":1,"mode":"proxy","selected":"fixture","profiles":[{"name":"fixture","url":format!("https://127.0.0.1:{}",fixture.port)}]}))?;
+                let run = project.run(&["probe"], None, Duration::from_secs(8)).await?;
+                let connects = fixture.connects.load(Ordering::SeqCst);
+                let proxy_tcp = fixture.proxy_tcp.load(Ordering::SeqCst);
+                let proxy_tls = fixture.proxy_tls.load(Ordering::SeqCst);
+                let tcp = fixture.origin_tcp.load(Ordering::SeqCst);
+                let tls = fixture.origin_tls.load(Ordering::SeqCst);
+                let passed = match mode {
+                    "trusted" => run.success() && run.json.as_ref().is_some_and(|value| value["connected"] == true && value["tools"] == 1 && value["account_read"] == true) && connects > 0 && tcp == connects && tls == connects,
+                    "untrusted-proxy" => !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls == 0 && connects == 0 && tcp == 0 && tls == 0,
+                    _ => !run.timed_out && run.exit == Some(1) && proxy_tcp > 0 && proxy_tls > 0 && connects > 0 && tcp == connects && tls == 0,
+                };
+                report.extension(&format!("extension-tls-proxy-{mode}"), passed, json!({"exit":run.exit,"timeout":run.timed_out,"proxy_tcp":proxy_tcp,"proxy_tls":proxy_tls,"connect_count":connects,"origin_tcp":tcp,"origin_tls":tls,"proxy_selected":true}))
+            }.await;
+            fixture.close().await?;
+            execution
+        }.await;
+        project.close().await?;
+        result?;
+    }
+    Ok(())
+}

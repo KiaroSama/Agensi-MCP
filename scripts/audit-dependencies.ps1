@@ -7,8 +7,17 @@ function Write-AuditLog {
 $root = Split-Path $PSScriptRoot -Parent
 $tools = Join-Path $root '.cache/audit-tools'
 $database = Join-Path $root '.cache/advisory-db'
+$names = @('CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_JOBS', 'TEMP', 'TMP', 'TMPDIR')
+$previous = @{}
+foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 Push-Location $root
 try {
+    $env:CARGO_HOME = Join-Path $root '.cache/cargo'
+    $env:CARGO_TARGET_DIR = Join-Path $root '.cache/audit-target'
+    $env:CARGO_BUILD_JOBS = '4'
+    $tempRoot = Join-Path $root '.tmp'
+    foreach ($path in @($tools, $env:CARGO_HOME, $env:CARGO_TARGET_DIR, $tempRoot)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
+    foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) { [Environment]::SetEnvironmentVariable($name, $tempRoot, 'Process') }
     Write-AuditLog INFO 'Installing the pinned RustSec auditor from its locked dependency graph.'
     & cargo install cargo-audit --version 0.22.2 --locked --root $tools
     if ($LASTEXITCODE -ne 0) { throw 'Pinned auditor installation failed; no scan claimed.' }
@@ -21,5 +30,6 @@ try {
     Write-AuditLog ERROR 'Dependency audit could not pass; do not merge until the failure is resolved.'
     exit 1
 } finally {
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     Pop-Location
 }

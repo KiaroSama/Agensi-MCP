@@ -1,11 +1,6 @@
 name: Dependency review
 on:
-  pull_request:
-  push:
-    branches: [main]
-  workflow_dispatch:
-  schedule:
-    - cron: '11 6 * * 1'
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -14,20 +9,27 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_HOME: ${{ github.workspace }}/.cache/cargo
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/audit-target
       CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Initialize project-owned child scratch
+        shell: pwsh
+        run: |
+          $tempRoot = Join-Path $env:GITHUB_WORKSPACE '.tmp'
+          New-Item $tempRoot -ItemType Directory -Force | Out-Null
+          foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) { "$name=$tempRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
       - name: Verify locked dependency graph
         run: cargo metadata --locked --format-version 1 > /dev/null
       - name: Mandatory RustSec lockfile audit
         shell: pwsh
         run: pwsh -NoProfile -File scripts/audit-dependencies.ps1
-      # The account's Dependency Graph is disabled. RustSec above remains mandatory.
-      # Enable this additional GitHub-specific diff only after enabling that capability.
-      - name: Additional GitHub dependency diff
-        if: github.event_name == 'pull_request' && vars.ENABLE_GITHUB_DEPENDENCY_REVIEW == 'true'
+      # The account's Dependency Graph is disabled; no GitHub diff coverage is claimed.
+      # Manual batches always run RustSec. A future enabled diff needs an approved explicit base/head contract.
+      - name: Additional GitHub dependency diff (not applicable)
+        if: false
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low

@@ -66,6 +66,11 @@ impl Report {
         self.rows.push(row);
         Ok(())
     }
+    pub fn extension(&mut self, name: &str, passed: bool, observed: Value) -> Result<()> {
+        self.record(name, passed, observed, None)?;
+        self.rows.last_mut().expect("Recorded extension")["inventory"] = json!("extension");
+        Ok(())
+    }
     pub fn inventory(&mut self, source: &Path, phase: &str) -> Result<()> {
         let inventory: Value = serde_json::from_slice(&std::fs::read(
             source.join("tests/fixtures/audit-inventory.json"),
@@ -102,6 +107,7 @@ impl Report {
         let actual: Vec<_> = self
             .rows
             .iter()
+            .filter(|row| row["inventory"] != "extension")
             .filter_map(|row| row["case"].as_str().map(str::to_owned))
             .collect();
         let expected_set: BTreeSet<_> = selected.iter().cloned().collect();
@@ -112,6 +118,49 @@ impl Report {
             || expected_set.len() != selected.len()
         {
             self.record("complete-inventory", false, json!({"expected":selected.len(),"observed":actual.len(),"missing":expected_set.difference(&actual_set).collect::<Vec<_>>(),"unexpected":actual_set.difference(&expected_set).collect::<Vec<_>>(),"order_matches":selected == actual}), None)?;
+        }
+        let extensions: Value = serde_json::from_slice(&std::fs::read(
+            source.join("tests/fixtures/audit-extensions.json"),
+        )?)?;
+        ensure!(
+            extensions["schema"] == 1,
+            "Invalid extension inventory schema"
+        );
+        let definitions = extensions["cases"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Missing extension cases"))?;
+        let mut unique = BTreeSet::new();
+        let mut selected = Vec::new();
+        for row in definitions {
+            let name = row["case"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing extension identity"))?;
+            let category = row["phase"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing extension phase"))?;
+            ensure!(
+                ["management", "filesystem", "oauth", "http", "tls-proxy"].contains(&category),
+                "Unknown extension phase"
+            );
+            ensure!(
+                row["status"] == "PASS"
+                    && unique.insert(name.to_owned())
+                    && !expected.contains(&name.to_owned()),
+                "Duplicate or invalid extension definition"
+            );
+            if (phase == "all" && category != "tls-proxy") || phase == category {
+                selected.push(name.to_owned());
+            }
+        }
+        let actual: Vec<_> = self
+            .rows
+            .iter()
+            .filter(|row| row["inventory"] == "extension")
+            .filter_map(|row| row["case"].as_str().map(str::to_owned))
+            .collect();
+        let actual_unique: BTreeSet<_> = actual.iter().collect();
+        if selected != actual || actual_unique.len() != actual.len() {
+            self.record("complete-extension-inventory", false, json!({"expected":selected.len(),"observed":actual.len(),"order_matches":selected == actual}), None)?;
         }
         Ok(())
     }
@@ -142,7 +191,27 @@ impl Report {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        let report = json!({"started_utc":self.started,"binary_sha256":binary_sha256,"phase":phase,"platform":if cfg!(target_os="linux") {"Linux"} else {std::env::consts::OS},"synthetic_loopback_only":true,"cases":self.rows,"passed":passed,"failed":failed});
+        let extension_count = self
+            .rows
+            .iter()
+            .filter(|row| row["inventory"] == "extension")
+            .count();
+        let historical_count = self
+            .rows
+            .iter()
+            .filter(|row| {
+                row["inventory"] != "extension"
+                    && row["case"] != "complete-inventory"
+                    && row["case"] != "complete-extension-inventory"
+                    && row["case"] != "harness-completion"
+            })
+            .count();
+        let coverage = if phase == "tls-proxy" {
+            json!({"plan":"P022","coverage":"partial","executed_controls":3,"blocked_requirements":[{"requirement":"real-cli-no-direct-fallback","verdict":"needs_validation","reason":"Hardcoded public destination cannot be independently observed as loopback direct traffic; no egress sandbox or endpoint override is approved"},{"requirement":"Windows/macOS-custom-CA-CLI-parity","verdict":"needs_validation","reason":"Platform verifier does not use the Linux child SSL_CERT_FILE trust contract; no system trust mutation allowed"}]})
+        } else {
+            Value::Null
+        };
+        let report = json!({"coverage":coverage,"started_utc":self.started,"binary_sha256":binary_sha256,"phase":phase,"platform":if cfg!(target_os="linux") {"Linux"} else {std::env::consts::OS},"synthetic_loopback_only":true,"historical_source_commit":SOURCE_COMMIT,"historical_count":historical_count,"extension_count":extension_count,"cases":self.rows,"passed":passed,"failed":failed});
         let parent = output
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Output needs a parent directory"))?;

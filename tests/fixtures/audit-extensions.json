@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "description": "Current approved regressions, separate from immutable original98 source evidence",
+  "cases": [
+    {"case": "extension-signin-short-expiry-refresh", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-signin-long-expiry-no-refresh", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-signin-failed-refresh", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-signin-missing-refresh-token", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-signin-independent-guard", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-bridge-interrupt-open-stdin", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-bridge-eof", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-bridge-route-error", "phase": "oauth", "status": "PASS"},
+    {"case": "extension-tls-proxy-trusted", "phase": "tls-proxy", "status": "PASS"},
+    {"case": "extension-tls-proxy-untrusted-proxy", "phase": "tls-proxy", "status": "PASS"},
+    {"case": "extension-tls-proxy-untrusted-origin", "phase": "tls-proxy", "status": "PASS"}
+  ]
+}

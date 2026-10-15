@@ -36,7 +36,12 @@ fn assert_oracle(case: &Value, actual: anyhow::Result<Value>) {
     if let Some(error) = case["error"].as_str() {
         assert_eq!(actual.expect_err(id).to_string(), error, "{id}");
     } else {
-        assert_eq!(actual.expect(id), case["expected"], "{id}");
+        let mut expected = case["expected"].clone();
+        if id == "proxy-23" {
+            // Approved current credential-presence contract; the historical oracle stays unchanged.
+            expected["status"]["profiles"][0]["authenticated"] = json!(true);
+        }
+        assert_eq!(actual.expect(id), expected, "{id}");
     }
 }
 
@@ -79,6 +84,32 @@ fn generated_management_oracle() {
             };
             assert_oracle(case, actual);
         }
+    }
+}
+
+#[test]
+fn public_status_reports_configured_credential_presence_without_secrets() {
+    for (url, present) in [
+        ("http://localhost:80", false),
+        ("http://fixture-user@localhost:80", true),
+        ("http://:fixture-pass@localhost:80", true),
+        ("https://fixture-user:@localhost:443", true),
+        ("socks4://fixture-user@localhost:1080", true),
+        ("socks4://localhost:1080", false),
+    ] {
+        config::validate_proxy(url).expect("Supported auth fixture");
+        let mut config = config::initial();
+        config
+            .profiles
+            .push(Profile::new("fixture".into(), url.into()));
+        let status = config::public_status(&config);
+        assert_eq!(status["profiles"][0]["authenticated"], present);
+        let encoded = status.to_string();
+        assert!(!encoded.contains("fixture-user") && !encoded.contains("fixture-pass"));
+        assert!(
+            !encoded.contains("://"),
+            "Projection must not contain a proxy URL"
+        );
     }
 }
 

@@ -28,7 +28,7 @@ pub struct OwnedProcess {
 
 impl OwnedProcess {
     pub fn spawn(root: &Path, args: &[OsString]) -> io::Result<Self> {
-        Self::launch(root, args, None)
+        Self::launch(root, args, None, None, None)
     }
 
     pub fn spawn_with_input(root: &Path, args: &[OsString], input: &[u8]) -> io::Result<Self> {
@@ -36,10 +36,41 @@ impl OwnedProcess {
         if input.len() > 1024 {
             return Err(io::Error::other("Owned input exceeds1024byte limit"));
         }
-        Self::launch(root, args, Some(input))
+        Self::launch(root, args, Some(input), None, None)
     }
 
-    fn launch(root: &Path, args: &[OsString], input: Option<&[u8]>) -> io::Result<Self> {
+    /// Preserve fixture CWD, streams and a bounded input without re-entering a libtest executable.
+    pub fn spawn_fixture_with_input(
+        bootstrap_host: &Path,
+        child_cwd: &Path,
+        args: &[OsString],
+        input: &[u8],
+        environment: &[(OsString, OsString)],
+    ) -> io::Result<Self> {
+        if input.len() > 1024 {
+            return Err(io::Error::other("Owned input exceeds1024byte limit"));
+        }
+        if !bootstrap_host.is_absolute() || !bootstrap_host.is_file() {
+            return Err(io::Error::other(
+                "Trusted built bootstrap host is unavailable",
+            ));
+        }
+        Self::launch(
+            child_cwd,
+            args,
+            Some(input),
+            Some(bootstrap_host),
+            Some(environment),
+        )
+    }
+
+    fn launch(
+        root: &Path,
+        args: &[OsString],
+        input: Option<&[u8]>,
+        bootstrap_host: Option<&Path>,
+        environment: Option<&[(OsString, OsString)]>,
+    ) -> io::Result<Self> {
         let program = args
             .first()
             .ok_or_else(|| io::Error::other("Missing command"))?;
@@ -48,7 +79,11 @@ impl OwnedProcess {
         #[cfg(windows)]
         let mut command = {
             use std::os::windows::process::CommandExt;
-            let mut command = Command::new(std::env::current_exe()?);
+            let executable = match bootstrap_host {
+                Some(host) => host.to_owned(),
+                None => std::env::current_exe()?,
+            };
+            let mut command = Command::new(executable);
             command
                 .arg(if input.is_some() {
                     "--bootstrap-input"
@@ -75,6 +110,13 @@ impl OwnedProcess {
         };
         #[cfg(windows)]
         let _ = program;
+        #[cfg(unix)]
+        let _ = bootstrap_host;
+        if let Some(environment) = environment {
+            command
+                .env_clear()
+                .envs(environment.iter().map(|(key, value)| (key, value)));
+        }
         command
             .current_dir(root)
             .stdout(Stdio::piped())

@@ -6,7 +6,7 @@
 [![GPLv3](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.99%2B-dea584)](Cargo.toml)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7-5391fe)](run.ps1)
-[![Windows](https://img.shields.io/badge/Platform-Windows-0078d4)](#start)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078d4)](#installation)
 [![Linux core](https://img.shields.io/badge/Core-Linux-64748b)](.github/workflows/ci.yml)
 [![MCP](https://img.shields.io/badge/Protocol-MCP-7c3aed)](https://modelcontextprotocol.io/)
 [![Streamable HTTP](https://img.shields.io/badge/Transport-Streamable_HTTP-2563eb)](https://agensi.io/mcp)
@@ -58,9 +58,14 @@ routed OAuth resource ownership, strict callback authority/framing, bounded stat
 coordinated client-registration recovery.
 For an existing source checkout, update its public scripts/source first, verify the matching release,
 and replace only `bin/agensi-mcp.exe` on Windows (or `bin/agensi-mcp` on Unix). Keep a recoverable
-previous executable; do not extract the archive over saved user data. Reconnect clients after the
-upgrade. A successful download or source test does not prove your saved sign-in or actual client
-registration; verify those separately with `probe` and the intended client.
+previous executable only until the matching release/source/hash, installed version/startup and preserved
+configuration/authentication are verified; do not extract over saved user data. Reconnect clients after
+the upgrade. Verify the intended connection with `probe` and separately in the actual client: a native
+probe is not proof of client loading. After all upgrade postconditions succeed, recycle unlocked,
+operation-owned obsolete executables and download/build/temp copies (use the Recycle Bin on Windows).
+Preserve the current executable, user state, skills, real operational logs and required private recovery
+evidence. Failed/partial upgrades retain their recovery copy; locked or ownership-ambiguous files stay
+reported, never client-killed just for cleanup. Public verified releases remain explicit rollback sources.
 
 Verify SHA256 before running. On Windows PowerShell, from your downloads folder:
 
@@ -82,8 +87,9 @@ shasum -a 256 -c agensi-mcp-macos-arm64.tar.gz.sha256
 
 Alternatively, open the latest successful [CI run](https://github.com/KiaroSama/Agensi-MCP/actions/workflows/ci.yml)
 and download its platform artifact while it is retained (30days, GitHub sign-in may be required).
-The artifact ZIP contains the platform archive plus checksum; extract the outer artifact first, then
-the platform archive. Releases provide durable public downloads without an Actions account.
+Historical release-run artifact ZIPs contain the platform archive plus checksum; extract the outer
+artifact first, then the platform archive. New empty-tag validation runs do not create downloadable
+release assets. Existing Releases provide durable public downloads without an Actions account.
 
 ### 2. Run on Windows
 
@@ -100,8 +106,11 @@ Or inspect the native executable directly:
 ./bin/agensi-mcp.exe status
 ```
 
-These builds are currently unsigned. Windows or macOS may require an explicit security approval;
-check the download source and checksum, and follow local policy rather than disabling protections.
+Existing published builds through `2.1.5` are unsigned; hashes do not establish publisher trust.
+New downloadable builds, publication and local replacement are blocked until the owner approves a
+publisher identity and verifiable platform signing contract. Current manual CI with an empty release
+tag performs internal validation only, not a distributable release. Preserve the installed working
+version meanwhile. Follow local policy; never disable OS protections to bypass missing trust.
 
 ### 3. Run on macOS or Linux
 
@@ -280,6 +289,10 @@ cannot contain colons. Proxy passwords never belong in public source or chat.
 ```bash
 ./bin/agensi-mcp.exe status
 ```
+
+In redacted status, `authenticated: true` means a configured username or password is present for a
+supported proxy, including password-only HTTP credentials and SOCKS4 USERID. It does not prove a
+successful proxy handshake or service sign-in. Status never prints credentials or full proxy URLs.
 
 ```bash
 ./bin/agensi-mcp.exe select "Example Proxy"
@@ -513,7 +526,7 @@ handled-error paths. Abrupt OS/process termination can leave remnants; a shared 
 ownership marker, so automatic blanket deletion is intentionally absent. These commands also appear
 as Windows menu10–13; use `bash run.sh <command>` on Unix.
 
-Actual competitor sales/revenue are not exposed by the current20-tool upstream MCP. This bridge
+Actual competitor sales/revenue are not exposed by the upstream MCP. This bridge
 cannot manufacture that data. Installs and ratings remain public uptake signals, not transactions;
 own Creator Studio analytics require separately authorized account access.
 
@@ -532,18 +545,74 @@ On macOS/Linux:
 bash scripts/build.sh
 ```
 
-Build scripts keep Cargo downloads in `.cache/cargo` and outputs in `target/`. After preserving the
-installed executable in `bin/`, those two generated folders can be removed to reclaim disk space.
-Do not remove `.state/auth`, `config.local.json`, your private proxy list or operational logs.
+Build scripts keep Cargo downloads in `.cache/cargo`, outputs in `target/` and child scratch in
+`.tmp/`; they restore caller environment/location on success or failure. After the installed executable
+and upgrade postconditions above are verified, recycle only unlocked operation-owned build/download
+scratch to reclaim disk space. Keep active/shared data, current `bin/`, authentication, configuration,
+skills, operational logs and unresolved-failure recovery evidence.
 
 ## Tests and CI
 
+CI is the normal full-verification path; its [target mapping](.github/workflows/ci.yml) mechanically
+checks every test target. For an authorized developer light check, create project-local `.tmp/`, set
+`CARGO_HOME=.cache/cargo`, `CARGO_TARGET_DIR=target`, `CARGO_BUILD_JOBS=4` and absolute project-local
+`TEMP`, `TMP`, `TMPDIR` as in the build scripts. Bootstrap once, then copy the runner before further
+Cargo use (Windows cannot overwrite its running executable):
+
 ```bash
-cargo test --locked --all-targets -- --test-threads=2
+cargo +1.99.0 build --locked --bin check-run
 ```
 
-Use project CARGO_HOME/target environment as in build script. Windows launcher test requires built
-`bin/agensi-mcp.exe`; Linux tests cover portable core, not Windows GUI/client integration.
+```bash
+cp target/debug/check-run .tmp/check-run
+```
+
+On Windows use PowerShell `Copy-Item target/debug/check-run.exe .tmp/check-run.exe` and `.exe` for
+all runner paths below. Precompile targets under the compile budget, then select ordinary libtest targets
+explicitly; `--all-targets` is for compilation here, not a universal test-harness command:
+
+```bash
+.tmp/check-run --wall 600 --idle 120 -- cargo +1.99.0 build --locked --all-targets
+```
+
+```bash
+.tmp/check-run --wall 180 --idle 45 -- cargo +1.99.0 test --locked --lib --bin agensi-mcp --bin check-run --test management --test network --test auth --test tls --test protocol --test oauth_flow --test entry --test socks4_userid --test local_http --test settings --test diagnostics --test cleanup --test audit_regressions --test check_release --test operator -- --test-threads=2
+```
+
+The three custom harnesses do not accept libtest arguments. Run the owned-runner tier on all hosts,
+menu on Windows only, and the independent audit on Linux only:
+
+```bash
+.tmp/check-run --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test check_runner
+```
+
+```bash
+.tmp/check-run.exe --wall 90 --idle 20 -- cargo +1.99.0 test --locked --test menu
+```
+
+```bash
+.tmp/check-run --wall 120 --idle 20 -- cargo +1.99.0 test --locked --test audit_blackbox -- --source-root . --output .tmp/audit-results.json
+```
+
+Doc tests use `.tmp/check-run --wall 60 --idle 30 -- cargo +1.99.0 test --locked --doc`.
+Output pressure uses `pwsh -NoProfile -File scripts/test-output-pressure.ps1` (its own bounded child
+controls). Windows also runs both registration suites separately under `.tmp/check-run.exe --wall 90
+--idle 20 -- pwsh -NoProfile -File`, with `scripts/test-registration.ps1` and
+`scripts/test-registration-storage.ps1`. Windows menu tests require built `bin/agensi-mcp.exe`.
+Before the Linux audit, create `bin/` and copy `target/debug/agensi-mcp` to `bin/agensi-mcp` with
+executable permission; the independent harness deliberately runs that staged binary, not Cargo's test
+executable. On Windows stage `target/debug/agensi-mcp.exe` into `bin/agensi-mcp.exe` for menu tests.
+These are target-specific commands, not instructions to duplicate CI suites locally; Linux core tests
+do not establish Windows GUI or real client integration. See [migration contracts](docs/migration-contracts.md).
+
+CI starts only by an explicit `workflow_dispatch` on the completed source SHA; pushes, PRs and schedules
+do not start validation. The one manual root calls same-commit RustSec and CodeQL workflows; release
+publication waits for both security jobs and all four native platforms plus approved signing readiness.
+An empty release tag runs internal debug/test validation only; a nonempty tag currently fails closed
+before native builds because no approved signing contract is configured. Packaging fixtures use test
+executables as internal validation, not completed distributable app builds. The Linux evidence collector
+intentionally formats only its own CI checkout to export a diagnostic patch after the independent
+blocking formatting check; its output is not an extra PASS.
 
 CI covers Windows2025 x64, Ubuntu24.04 x64, macOS15 Apple Silicon and macOS15 Intel: pinned Rust
 toolchain, fmt, clippy warnings-as-errors, locked build, source-oracle management/callback parity,

@@ -4,7 +4,15 @@ use rmcp::transport::auth::{
     AuthorizationManager, AuthorizationRequest, CredentialStore, OAuthState,
 };
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+#[path = "support/pkce.rs"]
+mod pkce;
+struct OwnedTask<T>(tokio::task::JoinHandle<T>);
+impl<T> Drop for OwnedTask<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 use tokio::{
     net::TcpListener,
     time::{Duration, timeout},
@@ -13,7 +21,10 @@ use url::Url;
 
 async fn oauth_roundtrip(noisy: bool) {
     timeout(Duration::from_secs(if noisy { 12 } else { 8 }), async {
-        let root = tempfile::tempdir().expect("root");
+        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".tmp");
+        std::fs::create_dir_all(&scratch).expect("Project scratch");
+        let root = tempfile::Builder::new().prefix("oauth-é-").tempdir_in(scratch).expect("root");
+        let challenge = Arc::new(Mutex::new(None::<String>));
         let root_path = root.path().canonicalize().expect("canonical fixture root");
         let settings = root_path.join("config.local.json");
         std::fs::write(&settings, b"{}").expect("snapshot");
@@ -30,11 +41,14 @@ async fn oauth_roundtrip(noisy: bool) {
             .route("/register",axum::routing::post(|Json(request):Json<serde_json::Value>| async move {
                 Json(json!({"client_id":"fixture-client","redirect_uris":request["redirect_uris"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}))
             }))
-            .route("/token",axum::routing::post(|body:String| async move {
-                assert!(body.contains("code_verifier="),"PKCE verifier required");
-                Json(json!({"access_token":"fixture-access","token_type":"Bearer","expires_in":3600,"refresh_token":"fixture-refresh","scope":"read install"}))
-            }));
-        let server = tokio::spawn(async move { axum::serve(listener,app).await.expect("AS serve"); });
+            .route("/token",axum::routing::post({let challenge=challenge.clone();move |body:String| {let challenge=challenge.clone();async move {
+                use axum::response::IntoResponse;
+                let grants:Vec<_>=url::form_urlencoded::parse(body.as_bytes()).filter(|(key,_)|key=="grant_type").collect();
+                let valid=grants.len()==1 && (grants[0].1=="refresh_token" || (grants[0].1=="authorization_code" && challenge.lock().expect("Challenge state").as_ref().is_some_and(|expected| pkce::authorization_form_valid(body.as_bytes(),expected))));
+                if !valid { return (axum::http::StatusCode::BAD_REQUEST,Json(json!({"error":"invalid_grant"}))).into_response(); }
+                Json(json!({"access_token":"fixture-access","token_type":"Bearer","expires_in":3600,"refresh_token":"fixture-refresh","scope":"read install"})).into_response()
+            }}}));
+        let mut server = OwnedTask(tokio::spawn(async move { axum::serve(listener,app).await.expect("AS serve"); }));
         let mut config = agensi_mcp::config::initial();
         config.mode = agensi_mcp::config::Mode::Direct;
         let client = agensi_mcp::network::client(&config).expect("fixture client");
@@ -45,10 +59,18 @@ async fn oauth_roundtrip(noisy: bool) {
         state.start_authorization(AuthorizationRequest::new(format!("http://127.0.0.1:{port}/oauth/callback")).with_client_name("Fixture")).await.expect("start");
         let link=Url::parse(&state.get_authorization_url().await.expect("URL")).expect("URL parse");
         let expected=link.query_pairs().find(|(k,_)|k=="state").expect("state").1.to_string();
-        assert!(link.query_pairs().any(|(k,v)|k=="code_challenge_method" && v=="S256"));
+        *challenge.lock().expect("Challenge state")=Some(pkce::challenge(&link).expect("Unique nonempty S256 challenge"));
+        let wire = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().expect("Wire control client");
+        for invalid in ["grant_type=authorization_code", "grant_type=authorization_code&code_verifier=", "grant_type=authorization_code&code_verifier=one&code_verifier=two", "grant_type=authorization_code&code_verifier=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] {
+            let reply=wire.post(format!("{base}/token")).header("Content-Type","application/x-www-form-urlencoded").body(invalid).send().await.expect("Negative token wire request");
+            assert_eq!(reply.status(), axum::http::StatusCode::BAD_REQUEST);
+            let body:serde_json::Value=reply.json().await.expect("Invalid grant response");
+            assert_eq!(body["error"],"invalid_grant");
+            assert!(store.load().await.expect("Store before valid exchange").is_none(),"Rejected verifier must not create a usable session");
+        }
         let mut received=Url::parse(&format!("http://127.0.0.1:{port}/oauth/callback")).expect("callback URL");
         received.query_pairs_mut().append_pair("state",&expected).append_pair("code","fixture-code").append_pair("iss",&base);
-        let request=tokio::spawn(async move {
+        let mut request=OwnedTask(tokio::spawn(async move {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             if noisy {
                 let mut idle = tokio::net::TcpStream::connect(("127.0.0.1",port)).await.unwrap();
@@ -73,12 +95,12 @@ async fn oauth_roundtrip(noisy: bool) {
                 let response=reqwest::Client::builder().no_proxy().build().expect("callbackclient").get(received).send().await.expect("callbacksend");
                 assert!(response.status().is_success());
             }
-        });
+        }));
         complete_authorization(&callback,port,&mut state,&expected).await.expect("complete");
-        request.await.expect("callbacktask");
+        (&mut request.0).await.expect("callbacktask");
         let saved=store.load().await.expect("saved").expect("session");
         assert_eq!(saved.client_id,"fixture-client");assert_eq!(saved.issuer.as_deref(),Some(base.as_str()));assert!(saved.token_received_at.is_some());
-        server.abort();let _=server.await;
+        server.0.abort();let _=(&mut server.0).await;
     }).await.expect("OAuth case deadline");
 }
 

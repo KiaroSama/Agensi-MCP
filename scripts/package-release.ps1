@@ -15,8 +15,17 @@ $stage = Join-Path $dist ('stage-' + [guid]::NewGuid().ToString('N'))
 $folderName = "agensi-mcp-$Platform"
 $payload = Join-Path $stage $folderName
 $utf8 = [Text.UTF8Encoding]::new($false)
+$extension = if ($windowsPackage) { '.zip' } else { '.tar.gz' }
+$archiveName = $folderName + $extension
+$archive = Join-Path $stage $archiveName
+$finalArchive = Join-Path $dist $archiveName
+$finalChecksum = $finalArchive + '.sha256'
+$publishedArchive = $false
+$publishedChecksum = $false
+$hash = $null
 Push-Location $root
 try {
+    if ((Test-Path -LiteralPath $finalArchive) -or (Test-Path -LiteralPath $finalChecksum)) { throw 'Release output already exists; use an empty output directory.' }
     [IO.Directory]::CreateDirectory($payload) | Out-Null
     # Only committed public files enter a download; never copy a user's working installation.
     $sourceArchive = Join-Path $stage 'source.zip'
@@ -48,13 +57,9 @@ try {
         if (Test-Path -LiteralPath (Join-Path $payload $relative)) { throw "Runtime/private payload refused: $relative" }
     }
     if ($windowsPackage) {
-        $archive = Join-Path $dist "$folderName.zip"
-        if (Test-Path -LiteralPath $archive) { throw 'Archive already exists; use an empty output directory.' }
         # Compress-Archive omits hidden manifests on Unix; .NET ZIP includes them on every host.
         [IO.Compression.ZipFile]::CreateFromDirectory($payload, $archive, [IO.Compression.CompressionLevel]::Optimal, $true)
     } else {
-        $archive = Join-Path $dist "$folderName.tar.gz"
-        if (Test-Path -LiteralPath $archive) { throw 'Archive already exists; use an empty output directory.' }
         & tar -czf $archive -C $stage $folderName
         if ($LASTEXITCODE -ne 0) { throw 'Cannot create native archive.' }
     }
@@ -75,8 +80,23 @@ try {
         if ($LASTEXITCODE -ne 0 -or $status.mode -ne 'disconnected') { throw 'Extracted download failed startup.' }
     } finally { Pop-Location }
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText(($archive + '.sha256'), "$hash  $([IO.Path]::GetFileName($archive))`n", $utf8)
-    Write-Output "Packaged and startup-verified: $([IO.Path]::GetFileName($archive))"
+    $checksumText = "$hash  $archiveName`n"
+    [IO.File]::WriteAllText(($archive + '.sha256'), $checksumText, $utf8)
+    if (Test-Path -LiteralPath $finalArchive) { throw 'Release archive destination appeared concurrently.' }
+    if (Test-Path -LiteralPath $finalChecksum) { throw 'Release checksum destination appeared concurrently.' }
+    # Both files are verified before no-overwrite publication; this is not crash-atomic pair publication.
+    [IO.File]::Move($archive, $finalArchive, $false)
+    $publishedArchive = $true
+    [IO.File]::Move(($archive + '.sha256'), $finalChecksum, $false)
+    $publishedChecksum = $true
+    Write-Output "Packaged and startup-verified: $archiveName"
+} catch {
+    # Never remove preexisting or externally replaced outputs during handled-error compensation.
+    try {
+        if ($publishedChecksum -and [IO.File]::Exists($finalChecksum) -and [IO.File]::ReadAllText($finalChecksum, $utf8) -ceq $checksumText) { [IO.File]::Delete($finalChecksum) }
+        if ($publishedArchive -and [IO.File]::Exists($finalArchive) -and (Get-FileHash -LiteralPath $finalArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hash) { [IO.File]::Delete($finalArchive) }
+    } catch { [Console]::Error.WriteLine('Release-output compensation incomplete; inspect owned outputs before retrying.') }
+    throw
 } finally {
     Pop-Location
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }

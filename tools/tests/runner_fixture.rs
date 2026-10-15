@@ -220,7 +220,55 @@ pub fn capture_with_input(
     )
 }
 
-fn capture_owned(mut owned: process::OwnedProcess, limit: Duration) -> Output {
+pub fn capture_fixture_with_input(
+    bootstrap_host: &Path,
+    child_cwd: &Path,
+    command: &[OsString],
+    input: &[u8],
+    environment: &[(OsString, OsString)],
+    limit: Duration,
+) -> Output {
+    capture_owned(
+        process::OwnedProcess::spawn_fixture_with_input(
+            bootstrap_host,
+            child_cwd,
+            command,
+            input,
+            environment,
+        )
+        .expect("Spawn isolated fixture with trusted bootstrap"),
+        limit,
+    )
+}
+
+/// Only platform/tool resolution is inherited; caller auth, proxy and configuration are excluded.
+pub fn fixture_environment(root: &Path) -> Vec<(OsString, OsString)> {
+    let mut environment = Vec::new();
+    for name in ["PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"] {
+        if let Some(value) = std::env::var_os(name) {
+            environment.push((name.into(), value));
+        }
+    }
+    let temp = root.join(".tmp");
+    let home = root.join("home");
+    fs::create_dir_all(&temp).expect("Fixture temp");
+    fs::create_dir_all(&home).expect("Fixture home");
+    for name in ["TEMP", "TMP", "TMPDIR"] {
+        environment.push((name.into(), temp.clone().into_os_string()));
+    }
+    for name in [
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "XDG_CONFIG_HOME",
+    ] {
+        environment.push((name.into(), home.clone().into_os_string()));
+    }
+    environment
+}
+
+pub fn capture_owned(mut owned: process::OwnedProcess, limit: Duration) -> Output {
     let stop = Arc::new(AtomicBool::new(false));
     let stdout = owned.child.stdout.take().expect("Captured stdout");
     let stderr = owned.child.stderr.take().expect("Captured stderr");

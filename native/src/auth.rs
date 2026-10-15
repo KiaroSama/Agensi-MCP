@@ -213,6 +213,8 @@ pub async fn signin(
     let manager = state
         .into_authorization_manager()
         .ok_or_else(|| anyhow::anyhow!("Authorization not completed."))?;
+    // Callback persistence is complete; SDK refresh now acquires its own exclusive guard.
+    drop(_guard);
     manager
         .get_access_token()
         .await

@@ -65,6 +65,20 @@ function Test-RegistrationBytesEqual {
     if ($null -eq $Left -or $null -eq $Right) { return ($null -eq $Left -and $null -eq $Right) }
     return $Left.Length -eq $Right.Length -and [Convert]::ToBase64String($Left) -ceq [Convert]::ToBase64String($Right)
 }
+function Convert-RegistrationToken {
+    param([Newtonsoft.Json.Linq.JToken]$Token)
+    if ($Token -is [Newtonsoft.Json.Linq.JObject]) {
+        $value = [Collections.Hashtable]::new([StringComparer]::Ordinal)
+        foreach ($property in $Token.Properties()) { $value[$property.Name] = Convert-RegistrationToken $property.Value }
+        return $value
+    }
+    if ($Token -is [Newtonsoft.Json.Linq.JArray]) {
+        $value = [object[]]::new($Token.Count)
+        for ($index = 0; $index -lt $Token.Count; $index++) { $value[$index] = Convert-RegistrationToken $Token[$index] }
+        return ,$value
+    }
+    return $Token.Value
+}
 function Get-RegistrationSnapshot {
     param([string]$Path)
     $pathValue = [IO.Path]::GetFullPath($Path)
@@ -74,10 +88,16 @@ function Get-RegistrationSnapshot {
         try {
             $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xfeff)
             if ([string]::IsNullOrWhiteSpace($text)) { throw 'Empty existing configuration.' }
-            $value = ConvertFrom-Json -InputObject $text -AsHashtable -Depth 100
+            $settings = [Newtonsoft.Json.JsonSerializerSettings]::new()
+            $settings.DateParseHandling = [Newtonsoft.Json.DateParseHandling]::None
+            $settings.TypeNameHandling = [Newtonsoft.Json.TypeNameHandling]::None
+            $settings.MetadataPropertyHandling = [Newtonsoft.Json.MetadataPropertyHandling]::Ignore
+            $settings.MaxDepth = 100
+            $token = [Newtonsoft.Json.JsonConvert]::DeserializeObject($text, $settings)
         } catch { throw 'Registration config must contain valid UTF-8 JSON.' }
+        if (-not ($token -is [Newtonsoft.Json.Linq.JObject])) { throw 'Registration config is not a JSON object.' }
+        $value = Convert-RegistrationToken $token
     }
-    if (-not ($value -is [System.Collections.IDictionary])) { throw 'Registration config is not a JSON object.' }
     return [pscustomobject]@{ Path = $pathValue; Bytes = $bytes; Value = $value; NewBytes = $null; Stage = $null; Backup = $null }
 }
 function Write-RegistrationStage {

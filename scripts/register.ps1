@@ -66,7 +66,9 @@ try {
     if ($DryRun) {
         Write-Output ('Desktop target: ' + $desktop.Path)
         Write-Output ('Code target: ' + $code.Path)
-        Write-Output 'Both targets validated. Dry run: no files or registrations changed.'
+        Write-Output 'Both targets validated. Dry run: client configuration files and registrations unchanged.'
+        $sink = if ($script:RegistrationLog) { 'file log and stderr' } else { 'stderr only (file logging unavailable)' }
+        Write-Output ('Diagnostics: ' + $sink + '. Configuration values omitted.')
         return
     }
     # Explicit target paths are honored directly; never invoke a CLI with an implicit HOME.

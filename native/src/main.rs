@@ -1,8 +1,23 @@
 use agensi_mcp::{auth, bridge, config, logging::Logger, management, network, project_root};
 use std::io::Read;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(_) => {
+            eprintln!("Cannot initialize Agensi runtime.");
+            std::process::exit(1);
+        }
+    };
+    runtime.block_on(dispatch());
+    // OS stdin uses an uncancellable blocking read; only this terminating CLI bounds its wait.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+}
+
+async fn dispatch() {
     // Vendor protocol diagnostics may include credential bytes; custom safe logging is separate.
     log::set_max_level(log::LevelFilter::Off);
     let root = match project_root() {

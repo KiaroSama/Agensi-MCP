@@ -35,6 +35,10 @@ pub async fn cases(context: &Context, report: &mut Report) -> Result<()> {
                     error = None;
                     expected = json!({"mode":"disconnected","selected":null,"profiles":[{"name":"fixture","protocol":"http","host":"localhost","port":80,"authenticated":false}]});
                 }
+                if group == "proxies" && name == "proxy-23" {
+                    // Owner-approved current credential presence, not a regenerated legacy oracle.
+                    expected["profiles"][0]["authenticated"] = json!(true);
+                }
                 let mut passed = if let Some(error) = error {
                     !run.timed_out && run.exit.is_some_and(|exit| exit != 0) && run.stderr.contains(error)
                 } else { run.success() };
