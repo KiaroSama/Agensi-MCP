@@ -29,9 +29,34 @@ fn certificate_rejected(error: &(dyn Error + 'static)) -> bool {
         ) {
             return true;
         }
-        current = error.source();
+        // io::Error::source forwards its payload's source, skipping the payload itself.
+        // TLS connectors nest these wrappers; inspect the typed inner error before advancing.
+        current = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(|error| error.get_ref())
+            .map(|error| error as &(dyn Error + 'static))
+            .or_else(|| error.source());
     }
     false
+}
+
+#[test]
+fn certificate_classification_follows_io_payloads_without_accepting_connection_errors() {
+    let certificate = || rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer);
+    assert!(certificate_rejected(&certificate()));
+    let wrapped = std::io::Error::other(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        certificate(),
+    ));
+    assert!(certificate_rejected(&wrapped));
+    for error in [
+        std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+        std::io::Error::from(std::io::ErrorKind::TimedOut),
+        std::io::Error::other(rustls::Error::General("Fixture setup failure".into())),
+        std::io::Error::other("invalid peer certificate: arbitrary string is not typed evidence"),
+    ] {
+        assert!(!certificate_rejected(&error));
+    }
 }
 
 #[tokio::test]
