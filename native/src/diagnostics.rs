@@ -206,16 +206,17 @@ async fn dns_check(root: &Path, snapshot: &[u8], route: &network::RoutedClient) 
 mod identity_tests {
     #[test]
     fn source_identity_requires_an_exact_ascii_commit() {
-        let commit = "0123456789abcdefABCDEF0123456789abcdef0123";
+        let commit = "0123456789abcdef0123456789ABCDEF01234567";
+        assert_eq!(commit.len(), 40);
         assert_eq!(super::source_commit(Some(commit)), commit);
         for value in [
             None,
             Some(""),
-            Some("0123456789abcdefABCDEF0123456789abcdef012"),
-            Some("0123456789abcdefABCDEF0123456789abcdef01234"),
-            Some("g123456789abcdefABCDEF0123456789abcdef0123"),
-            Some(" 123456789abcdefABCDEF0123456789abcdef0123"),
-            Some("é123456789abcdefABCDEF0123456789abcdef012"),
+            Some("0123456789abcdef0123456789ABCDEF0123456"),
+            Some("0123456789abcdef0123456789ABCDEF012345678"),
+            Some("g123456789abcdef0123456789ABCDEF01234567"),
+            Some(" 123456789abcdef0123456789ABCDEF01234567"),
+            Some("é123456789abcdef0123456789ABCDEF0123456"),
         ] {
             assert_eq!(super::source_commit(value), "unknown");
         }
