@@ -17,7 +17,10 @@ mod platform;
 mod platform;
 
 pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
-pub use platform::{InterruptGuard, read_pipe};
+// Shared fixture targets use pipe ownership without installing the runner's signal handler.
+#[allow(unused_imports)]
+pub use platform::InterruptGuard;
+pub use platform::read_pipe;
 
 pub struct OwnedProcess {
     pub child: Child,

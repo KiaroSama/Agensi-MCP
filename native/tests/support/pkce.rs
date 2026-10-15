@@ -63,31 +63,3 @@ fn decode_challenge(value: &str) -> Option<Vec<u8>> {
     }
     (output.len() == 32 && bits & ((1 << count) - 1) == 0).then_some(output)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn rfc7636_vector_and_invalid_verifiers() {
-        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-        let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-        assert!(authorization_form_valid(
-            format!("code_verifier={verifier}").as_bytes(),
-            challenge
-        ));
-        for body in [
-            "",
-            "code_verifier=",
-            "code_verifier=wrong",
-            &format!("code_verifier={verifier}&code_verifier={verifier}"),
-            &format!("code_verifier={verifier}&code%5Fverifier={verifier}"),
-            "code_verifier=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "code_verifier=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%20",
-        ] {
-            assert!(
-                !authorization_form_valid(body.as_bytes(), challenge),
-                "Invalid verifier accepted"
-            );
-        }
-    }
-}

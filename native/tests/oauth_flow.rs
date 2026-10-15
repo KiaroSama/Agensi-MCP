@@ -113,3 +113,27 @@ async fn official_oauth_pkce_callback_saves_reusable_session() {
 async fn malformed_peers_and_fragmented_callback_do_not_abort_signin() {
     oauth_roundtrip(true).await;
 }
+
+#[test]
+fn rfc7636_vector_and_invalid_verifiers() {
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+    assert!(pkce::authorization_form_valid(
+        format!("code_verifier={verifier}").as_bytes(),
+        challenge
+    ));
+    for body in [
+        "",
+        "code_verifier=",
+        "code_verifier=wrong",
+        &format!("code_verifier={verifier}&code_verifier={verifier}"),
+        &format!("code_verifier={verifier}&code%5Fverifier={verifier}"),
+        "code_verifier=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "code_verifier=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%20",
+    ] {
+        assert!(
+            !pkce::authorization_form_valid(body.as_bytes(), challenge),
+            "Invalid verifier accepted"
+        );
+    }
+}
