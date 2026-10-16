@@ -293,12 +293,29 @@ fn packaging_publishes_only_verified_owned_outputs_and_preserves_existing_files(
         "-o".into(),
         binary.clone().into_os_string(),
     ];
+    let mut compiler_environment = runner_fixture::fixture_environment(&fixture.root);
+    let rustup_home = std::env::var_os("RUSTUP_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|home| PathBuf::from(home).join(".rustup"))
+        })
+        .expect("Original Rustup toolchain location");
+    compiler_environment.push(("RUSTUP_HOME".into(), rustup_home.into_os_string()));
+    compiler_environment.push(("RUSTUP_TOOLCHAIN".into(), "1.99.0".into()));
+    #[cfg(windows)]
+    for name in ["LIB", "INCLUDE", "LIBPATH"] {
+        if let Some(value) = std::env::var_os(name) {
+            compiler_environment.push((name.into(), value));
+        }
+    }
     assert_script_success(runner_fixture::capture_fixture_with_input(
         &fixture.bootstrap,
         &fixture.foreign,
         &command,
         b"",
-        &runner_fixture::fixture_environment(&fixture.root),
+        &compiler_environment,
         Duration::from_secs(5),
     ));
     assert_script_success(fixture.powershell(r#"
