@@ -270,24 +270,37 @@ fn packaging_publishes_only_verified_owned_outputs_and_preserves_existing_files(
     let binary = fixture
         .root
         .join(if cfg!(windows) { "input.exe" } else { "input" });
-    fs::copy(env!("CARGO_BIN_EXE_agensi-mcp"), &binary).expect("Native fixture binary");
-    #[cfg(unix)]
-    {
-        // Package correctness needs executable bytes, not repeated compression of debug symbols.
-        let command = [
-            OsString::from("strip"),
-            "-S".into(),
-            binary.clone().into_os_string(),
-        ];
-        assert_script_success(runner_fixture::capture_fixture_with_input(
-            &fixture.bootstrap,
-            &fixture.foreign,
-            &command,
-            b"",
-            &runner_fixture::fixture_environment(&fixture.root),
-            Duration::from_secs(5),
-        ));
+    // Transaction oracles need native startup/extraction, not repeated compression of the full CLI.
+    // Real CLI behavior and cryptographic packaging remain separate release-CI gates.
+    let source = fixture.root.join("fixture.rs");
+    fs::write(
+        &source,
+        r#"fn main() {
+    if std::env::args().skip(1).collect::<Vec<_>>() != ["status"] {
+        std::process::exit(2);
     }
+    println!("{{\"mode\":\"disconnected\",\"profiles\":[]}}");
+}
+"#,
+    )
+    .expect("UTF8 native transaction fixture");
+    let command = [
+        OsString::from("rustc"),
+        "--edition=2024".into(),
+        "-Copt-level=z".into(),
+        "-Cstrip=symbols".into(),
+        source.into_os_string(),
+        "-o".into(),
+        binary.clone().into_os_string(),
+    ];
+    assert_script_success(runner_fixture::capture_fixture_with_input(
+        &fixture.bootstrap,
+        &fixture.foreign,
+        &command,
+        b"",
+        &runner_fixture::fixture_environment(&fixture.root),
+        Duration::from_secs(5),
+    ));
     assert_script_success(fixture.powershell(r#"
 param($Root, $Foreign)
 $ErrorActionPreference = 'Stop'

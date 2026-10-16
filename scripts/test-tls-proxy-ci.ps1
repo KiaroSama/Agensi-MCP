@@ -73,8 +73,17 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
     try {
         $started = $process.Start()
         if (-not $started) { throw 'Fixture helper did not start.' }
-        $processRecord = Join-Path $state ('process-' + $process.Id + '.json')
-        [IO.File]::WriteAllText($processRecord, (ConvertTo-Json @{ pid = $process.Id; started = $process.StartTime.ToUniversalTime().Ticks }), $utf8)
+        # PowerShell suppresses a reaped Unix process's StartTime getter error as null.
+        # An exited child needs no recovery identity; a live child requires the real timestamp.
+        if (-not $process.HasExited) {
+            try {
+                $startedAt = $process.get_StartTime().ToUniversalTime().Ticks
+                $processRecord = Join-Path $state ('process-' + $process.Id + '.json')
+                [IO.File]::WriteAllText($processRecord, (ConvertTo-Json @{ pid = $process.Id; started = $startedAt }), $utf8)
+            } catch {
+                if (-not $process.HasExited) { throw }
+            }
+        }
         $process.StandardInput.Close()
         $readers = @($process.StandardOutput, $process.StandardError)
         $buffers = @([char[]]::new(4096), [char[]]::new(4096))
@@ -101,7 +110,7 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
         if ($process.ExitCode -ne 0) {
             $diagnostic = Join-Path $state ('helper-' + $process.Id + '.diagnostic.txt')
             # Only this synthetic fixture stage uses this owner; signing secrets are removed below.
-            $failure = $texts[1].ToString()
+            $failure = "[synthetic stdout]`n" + $texts[0].ToString() + "`n[synthetic stderr]`n" + $texts[1].ToString()
             [IO.File]::WriteAllText($diagnostic, $failure, $utf8)
             [Console]::Error.Write($failure)
             throw ('Fixture helper failed: ' + [IO.Path]::GetFileName($Program) + ' exit=' + $process.ExitCode)
