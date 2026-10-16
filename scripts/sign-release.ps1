@@ -104,6 +104,27 @@ try {
         $matching = @($pins | Where-Object { $_ -ceq $descriptor.leaf_sha1 }).Count
         Write-SigningLog INFO ('Signing stage=mac-identity-readback; approved_identity_count=' + $matching + '.')
         if ($matching -ne 1 -or $pins.Count -ne 1) { throw 'Owned keychain does not expose exactly the approved signing identity.' }
+        $stage = 'mac-certificate-chain-readback'
+        function Get-OwnedSigningCertificatePins {
+            $listing = Invoke-SigningProcess /usr/bin/security @('find-certificate','-a','-Z',$keychain)
+            @([regex]::Matches($listing.Stdout, '(?im)^SHA-256 hash:\s*([0-9a-f]{64})\s*$') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+        }
+        $certificatePins = @(Get-OwnedSigningCertificatePins)
+        $rootCount = @($certificatePins | Where-Object { $_ -ceq $descriptor.root_sha256 }).Count
+        $leafCount = @($certificatePins | Where-Object { $_ -ceq $descriptor.leaf_sha256 }).Count
+        Write-SigningLog INFO ('Signing stage=mac-certificate-chain-readback; existing_root_count={0}; existing_leaf_count={1}.' -f $rootCount, $leafCount)
+        if ($rootCount -eq 0) {
+            $rootPublic = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem([IO.File]::ReadAllText((Join-Path $script:SigningRoot 'signing/root.pem'), [Text.UTF8Encoding]::new($false, $true)))
+            try {
+                $rootDer = Join-Path $temporary 'root.cer'
+                [IO.File]::WriteAllBytes($rootDer, $rootPublic.RawData)
+            } finally { $rootPublic.Dispose() }
+            Invoke-SigningProcess /usr/bin/security @('add-certificates','-k',$keychain,$rootDer) | Out-Null
+            $certificatePins = @(Get-OwnedSigningCertificatePins)
+            Write-SigningLog INFO 'Public root certificate added to owned keychain; no trust settings changed.'
+        }
+        if ($certificatePins.Count -ne 2 -or $certificatePins -cnotcontains $descriptor.leaf_sha256 -or $certificatePins -cnotcontains $descriptor.root_sha256) { throw 'Owned keychain must contain exactly the pinned leaf and public root certificates.' }
+        Write-SigningLog INFO 'Signing stage=mac-certificate-chain-complete; exact_leaf_and_root_pins=2.'
         $stage = 'mac-codesign'
         Write-SigningLog INFO 'Signing stage=mac-codesign.'
         $native = Invoke-SigningProcess /usr/bin/codesign @('--force','--keychain',$keychain,'--sign',$descriptor.leaf_sha1,'--timestamp=none',$Path) -AllowFailure

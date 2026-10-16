@@ -272,59 +272,8 @@ fn packaging_publishes_only_verified_owned_outputs_and_preserves_existing_files(
         .join(if cfg!(windows) { "input.exe" } else { "input" });
     // Transaction oracles need native startup/extraction, not repeated compression of the full CLI.
     // Real CLI behavior and cryptographic packaging remain separate release-CI gates.
-    let source = fixture.root.join("fixture.rs");
-    fs::write(
-        &source,
-        r#"fn main() {
-    if std::env::args().skip(1).collect::<Vec<_>>() != ["status"] {
-        std::process::exit(2);
-    }
-    println!("{{\"mode\":\"disconnected\",\"profiles\":[]}}");
-}
-"#,
-    )
-    .expect("UTF8 native transaction fixture");
-    let command = [
-        OsString::from("rustc"),
-        "--edition=2024".into(),
-        "-Copt-level=z".into(),
-        "-Cstrip=symbols".into(),
-        source.into_os_string(),
-        "-o".into(),
-        binary.clone().into_os_string(),
-    ];
-    let mut compiler_environment = runner_fixture::fixture_environment(&fixture.root);
-    let rustup_home = std::env::var_os("RUSTUP_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-                .map(|home| PathBuf::from(home).join(".rustup"))
-        })
-        .expect("Original Rustup toolchain location");
-    compiler_environment.push(("RUSTUP_HOME".into(), rustup_home.into_os_string()));
-    compiler_environment.push(("RUSTUP_TOOLCHAIN".into(), "1.99.0".into()));
-    // Native MSVC discovery needs the installed Visual Studio locator, not GNU link.exe on PATH.
-    #[cfg(windows)]
-    for name in [
-        "LIB",
-        "INCLUDE",
-        "LIBPATH",
-        "ProgramFiles(x86)",
-        "ProgramFiles",
-    ] {
-        if let Some(value) = std::env::var_os(name) {
-            compiler_environment.push((name.into(), value));
-        }
-    }
-    assert_script_success(runner_fixture::capture_fixture_with_input(
-        &fixture.bootstrap,
-        &fixture.foreign,
-        &command,
-        b"",
-        &compiler_environment,
-        Duration::from_secs(5),
-    ));
+    fs::copy(env!("CARGO_BIN_EXE_packaging-fixture"), &binary)
+        .expect("Copy prebuilt native transaction fixture");
     assert_script_success(fixture.powershell(r#"
 param($Root, $Foreign)
 $ErrorActionPreference = 'Stop'

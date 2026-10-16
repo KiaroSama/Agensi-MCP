@@ -86,7 +86,10 @@ actual final exact-SHA hosted reports before claiming all-platform parity.
 The wrapper permits temporary fixture trust, name mapping and network restrictions only on disposable
 GitHub-hosted runners, then removes its owned changes. No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
-these actual CLI proxy/origin observations or successful cleanup.
+these actual CLI proxy/origin observations or successful cleanup. On disposable macOS runners only,
+owned trust removal temporarily delegates the administrative trust right to the native root-only rule.
+The original authorization policy is restored and checked on normal and failure paths; native policy
+bookkeeping timestamps can change. No workstation authorization policy is changed.
 
 ## Runtime evidence and limits
 

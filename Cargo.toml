@@ -14,6 +14,13 @@ path = "native/src/lib.rs"
 name = "check-run"
 path = "tools/check/main.rs"
 
+[[bin]]
+name = "packaging-fixture"
+path = "tools/fixtures/package.rs"
+test = false
+bench = false
+doc = false
+
 [[test]]
 name = "check_runner"
 path = "tools/tests/runner.rs"
