@@ -41,8 +41,7 @@ function Assert-OwnedPath([string]$Path) {
     }
     return $full
 }
-function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 10, [switch]$Isolated, [string]$InputText, [switch]$PreserveOutput) {
-    if ($utf8.GetByteCount([string]$InputText) -gt 32768) { throw 'Fixture helper stdin exceeded its allocation bound.' }
+function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 10, [switch]$Isolated) {
     $process = [Diagnostics.Process]::new()
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Program
@@ -54,7 +53,6 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
     $info.RedirectStandardInput = $true
     $info.StandardOutputEncoding = $utf8
     $info.StandardErrorEncoding = $utf8
-    $info.StandardInputEncoding = $utf8
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
     foreach ($name in @('AGENSI_SIGNING_PFX_B64','AGENSI_SIGNING_PASSWORD')) { $null = $info.Environment.Remove($name) }
     if ($Isolated) {
@@ -86,15 +84,13 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
                 if (-not $process.HasExited) { throw }
             }
         }
-        $watch = [Diagnostics.Stopwatch]::StartNew()
-        $write = if ($InputText) { $process.StandardInput.WriteAsync($InputText) } else { $null }
-        if (-not $write) { $process.StandardInput.Close() }
+        $process.StandardInput.Close()
         $readers = @($process.StandardOutput, $process.StandardError)
         $buffers = @([char[]]::new(4096), [char[]]::new(4096))
         $texts = @([Text.StringBuilder]::new(), [Text.StringBuilder]::new())
         $reads = @($readers[0].ReadAsync($buffers[0], 0, 4096), $readers[1].ReadAsync($buffers[1], 0, 4096))
+        $watch = [Diagnostics.Stopwatch]::StartNew()
         while ($true) {
-            if ($write -and $write.IsCompleted) { $write.GetAwaiter().GetResult(); $write = $null; $process.StandardInput.Close() }
             for ($index = 0; $index -lt 2; $index++) {
                 if ($reads[$index] -and $reads[$index].IsCompleted) {
                     $count = $reads[$index].GetAwaiter().GetResult()
@@ -105,7 +101,7 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
                     }
                 }
             }
-            if ($process.HasExited -and -not $reads[0] -and -not $reads[1] -and -not $write) { break }
+            if ($process.HasExited -and -not $reads[0] -and -not $reads[1]) { break }
             if ($watch.Elapsed.TotalSeconds -ge $Seconds) { throw 'Fixture helper or pipe deadline exceeded.' }
             $pending = @($reads | Where-Object { $null -ne $_ })
             if ($pending.Count) { $null = [Threading.Tasks.Task]::WaitAny([Threading.Tasks.Task[]]$pending, 50) }
@@ -123,7 +119,6 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
             [Console]::Out.Write($texts[0].ToString())
             [Console]::Error.Write($texts[1].ToString())
         }
-        if ($PreserveOutput) { return $texts[0].ToString() }
         return $texts[0].ToString().Trim()
     } finally {
         if ($started -and -not $process.HasExited) {
@@ -144,95 +139,7 @@ function Save-Ledger($Ledger) {
     [IO.File]::WriteAllText($staged, (ConvertTo-Json -Depth 6 $Ledger), $utf8)
     [IO.File]::Move($staged, (Join-Path $state 'ledger.json'), $true)
 }
-function Convert-PlistPolicy([string]$Text) {
-    $settings = [Xml.XmlReaderSettings]::new()
-    $settings.DtdProcessing = [Xml.DtdProcessing]::Ignore
-    $settings.XmlResolver = $null
-    $reader = [Xml.XmlReader]::Create([IO.StringReader]::new($Text), $settings)
-    $document = [Xml.XmlDocument]::new()
-    try { $document.Load($reader) } finally { $reader.Dispose() }
-    $dictionary = $document.SelectSingleNode('/plist/dict')
-    if (-not $dictionary) { throw 'Authorization definition is not a plist dictionary.' }
-    # authd regenerates these bookkeeping fields on write; no policy field is excluded.
-    foreach ($name in @('created','modified')) {
-        $key = $dictionary.SelectSingleNode("key[text()='$name']")
-        if ($key) { $null = $dictionary.RemoveChild($key.NextSibling); $null = $dictionary.RemoveChild($key) }
-    }
-    function Convert-Node($Node) {
-        $children = @($Node.ChildNodes | Where-Object NodeType -EQ ([Xml.XmlNodeType]::Element))
-        if ($Node.Name -eq 'dict') {
-            if ($children.Count % 2) { throw 'Malformed authorization dictionary.' }
-            $pairs = [Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
-            for ($i = 0; $i -lt $children.Count; $i += 2) {
-                $key = $children[$i].InnerText
-                if ($children[$i].Name -ne 'key' -or $pairs.ContainsKey($key)) { throw 'Invalid or duplicate authorization key.' }
-                $pairs[$key] = Convert-Node $children[$i + 1]
-            }
-            return 'dict:' + (ConvertTo-Json -Compress -Depth 30 @($pairs.Keys | ForEach-Object { @($_,$pairs[$_]) }))
-        }
-        if ($Node.Name -eq 'array') { return 'array:' + (ConvertTo-Json -Compress -Depth 30 @($children | ForEach-Object { Convert-Node $_ })) }
-        if ($Node.Name -notin @('string','integer','real','date','data','true','false')) { throw 'Unsupported authorization plist value.' }
-        return ConvertTo-Json -Compress @($Node.Name,$Node.InnerText)
-    }
-    return Convert-Node $dictionary
-}
-function Test-PlistPolicy {
-    $base = '<plist><dict><key>Case</key><string>A</string><key>case</key><string>B</string><key>modified</key><real>1</real><key>rule</key><array><string>one</string><string>two</string></array></dict></plist>'
-    $policy = Convert-PlistPolicy $base
-    if ($policy -cne (Convert-PlistPolicy ($base.Replace('<real>1</real>','<real>2</real>')))) { throw 'Authorization bookkeeping comparison control failed.' }
-    foreach ($changed in @(
-        $base.Replace('<string>B</string>','<string>C</string>'),
-        $base.Replace('<string>one</string><string>two</string>','<string>two</string><string>one</string>'),
-        $base.Replace('<string>B</string>','<integer>1</integer>')
-    )) { if ($policy -ceq (Convert-PlistPolicy $changed)) { throw 'Authorization policy mutation comparison control failed.' } }
-    $rejected = $false
-    try { $null = Convert-PlistPolicy ($base.Replace('<key>case</key>','<key>Case</key>')) } catch { $rejected = $true }
-    if (-not $rejected) { throw 'Duplicate authorization key control failed.' }
-}
-function Read-MacCleanupRight {
-    return Invoke-Bounded '/usr/bin/security' @('authorizationdb','read','com.apple.trust-settings.admin') -PreserveOutput
-}
-function Restore-MacCleanupRight {
-    $pending = Join-Path $state 'mac-authorization.pending'
-    if (-not $IsMacOS -or -not [IO.File]::Exists($pending)) { return }
-    Write-CiLog INFO 'Cleanup stage=mac-restore-authorization-policy'
-    $original = [IO.File]::ReadAllText((Join-Path $state 'mac-authorization.original.plist'), $utf8)
-    $expected = Convert-PlistPolicy $original
-    $null = Invoke-Bounded '/usr/bin/security' @('authorizationdb','write','com.apple.trust-settings.admin') -InputText $original
-    if ((Convert-PlistPolicy (Read-MacCleanupRight)) -cne $expected) { throw 'Original administrative trust authorization policy was not restored.' }
-    [IO.File]::Delete($pending)
-    Write-CiLog INFO 'Original authorization policy restored; native bookkeeping timestamps excluded.'
-}
-function Enable-MacCleanupRight {
-    if (-not $IsMacOS -or (Invoke-Bounded '/usr/bin/id' @('-u')) -cne '0') { throw 'Administrative cleanup authorization requires the hosted root fixture owner.' }
-    Restore-MacCleanupRight
-    $snapshot = Join-Path $state 'mac-authorization.original.plist'
-    $original = Read-MacCleanupRight
-    if ($utf8.GetByteCount($original) -gt 32768) { throw 'Original authorization plist exceeds the bounded restore input.' }
-    $null = Convert-PlistPolicy $original
-    if ([IO.File]::Exists($snapshot)) {
-        if ((Convert-PlistPolicy ([IO.File]::ReadAllText($snapshot,$utf8))) -cne (Convert-PlistPolicy $original)) { throw 'Administrative trust authorization changed outside the fixture.' }
-    } else { [IO.File]::WriteAllText($snapshot,$original,$utf8) }
-    # This marker is durable before the native write; outer recovery restores after a killed helper.
-    [IO.File]::WriteAllText((Join-Path $state 'mac-authorization.pending'), 'restore-original-policy', $utf8)
-    Write-CiLog INFO 'Cleanup stage=mac-enable-root-only-authorization'
-    $null = Invoke-Bounded '/usr/bin/security' @('authorizationdb','write','com.apple.trust-settings.admin','is-root')
-    $observed = Read-MacCleanupRight
-    # Native exports add defaults; inspect the delegated rule, never accept class=allow.
-    $xml = [Xml.XmlDocument]::new()
-    $xml.XmlResolver = $null
-    $xml.LoadXml($observed)
-    $class = $xml.SelectSingleNode('/plist/dict/key[text()="class"]/following-sibling::*[1]')
-    $rules = $xml.SelectSingleNode('/plist/dict/key[text()="rule"]/following-sibling::*[1]')
-    if ($class.InnerText -cne 'rule' -or $rules.Name -cne 'array' -or $rules.ChildNodes.Count -ne 1 -or $rules.FirstChild.InnerText -cne 'is-root') { throw 'Root-only cleanup authorization delegation was not observed.' }
-}
 function Remove-CaseState {
-    try {
-        if ($IsMacOS -and @( (Read-Ledger).roots ).Count) { Enable-MacCleanupRight }
-        Remove-CaseStateCore
-    } finally { Restore-MacCleanupRight }
-}
-function Remove-CaseStateCore {
     $cleanupStage = 'ledger'
     $ledger = Read-Ledger
     $failed = $false
@@ -270,10 +177,18 @@ function Remove-CaseStateCore {
     foreach ($rule in @($ledger.rules)) {
         try {
             if ($IsWindows) {
-                Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop
+                $cleanupStage = 'windows-firewall-find'
+                Write-CiLog INFO "Cleanup stage=$cleanupStage"
+                $ownedRule = Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue
+                $cleanupStage = 'windows-firewall-remove'
+                Write-CiLog INFO "Cleanup stage=$cleanupStage"
+                if ($ownedRule) { $ownedRule | Remove-NetFirewallRule -ErrorAction Stop }
+                $cleanupStage = 'windows-firewall-verify-absent'
+                Write-CiLog INFO "Cleanup stage=$cleanupStage"
                 if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { throw 'Owned rule remains.' }
+                Write-CiLog INFO 'Cleanup stage=windows-firewall-complete'
             }
-        } catch { $failed = $true; Write-CiLog ERROR 'Owned firewall cleanup failed; no success claimed.' }
+        } catch { $failed = $true; Write-CiLog ERROR "Owned firewall cleanup failed stage=$cleanupStage; no success claimed." }
     }
     if ($failed) { throw 'Native case cleanup incomplete.' }
     Save-Ledger @{ roots = @(); rules = @() }
@@ -361,7 +276,6 @@ catch { Write-CiLog WARNING 'File logging unavailable; captured console is the f
 try {
     Write-CiLog INFO "Starting action=$Action"
     if ($Action -eq 'Execute') {
-        Test-PlistPolicy
         $hosts = if ($IsWindows) { Join-Path $env:SYSTEMROOT 'System32/drivers/etc/hosts' } else { '/etc/hosts' }
         $backup = Join-Path $state 'hosts.original'
         $original = [IO.File]::ReadAllBytes($hosts)
@@ -370,21 +284,6 @@ try {
         # Write intent before any privileged mutation so the outer owner can recover a killed run.
         [IO.File]::WriteAllText((Join-Path $state 'invocation.json'), (ConvertTo-Json @{ hosts = $hosts; namespace = $(if ($IsLinux) { $namespace } else { $null }); restored = $false }), $utf8)
         try {
-            if ($IsMacOS) {
-                $controlled = $false
-                $armed = $false
-                try {
-                    Enable-MacCleanupRight
-                    $armed = $true
-                    throw [OperationCanceledException]::new('Synthetic cleanup restoration control.')
-                } catch [OperationCanceledException] {
-                    if (-not $armed) { throw }
-                    $controlled = $true
-                }
-                finally { Restore-MacCleanupRight }
-                if (-not $controlled -or [IO.File]::Exists((Join-Path $state 'mac-authorization.pending'))) { throw 'Authorization failure-restoration control did not complete.' }
-                Write-CiLog INFO 'Controlled cleanup failure restored original authorization policy.'
-            }
             $text = $utf8.GetString($original)
             if ($text -match '(?m)^\s*[^#\r\n]+\s+(?:mcp\.agensi\.io|auth\.agensi-audit\.test)(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
             [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io auth.agensi-audit.test`n", $utf8)
@@ -436,14 +335,21 @@ try {
             $ledger = Read-Ledger
             $ledger.rules += $name
             Save-Ledger $ledger
+            Write-CiLog INFO 'Protect stage=windows-firewall-profiles'
             if (@(Get-NetFirewallProfile | Where-Object Enabled -NE 'True').Count) { throw 'Native firewall profiles must already be enabled.' }
             $ranges = @('0.0.0.0-126.255.255.255','128.0.0.0-255.255.255.255','::','::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
+            Write-CiLog INFO 'Protect stage=windows-firewall-create'
             New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Action Block -Program $Binary -RemoteAddress $ranges -Profile Any -Enabled True | Out-Null
+            Write-CiLog INFO 'Protect stage=windows-firewall-query'
             $rule = Get-NetFirewallRule -Name $name
+            Write-CiLog INFO 'Protect stage=windows-firewall-address-filter'
             $observedRanges = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule).RemoteAddress)
+            Write-CiLog INFO 'Protect stage=windows-firewall-program-filter'
+            $observedProgram = (Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program
             if ($rule.Action -ne 'Block' -or $rule.Direction -ne 'Outbound' -or $rule.Enabled -ne 'True' -or
-                (Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program -ne $Binary -or
+                $observedProgram -ne $Binary -or
                 @(Compare-Object ($ranges | Sort-Object) ($observedRanges | Sort-Object)).Count) { throw 'Exact copied CLI firewall restriction was not applied.' }
+            Write-CiLog INFO 'Protect stage=windows-firewall-complete'
         }
     } elseif ($Action -eq 'Trust') {
         $null = Assert-OwnedPath $CaseRoot

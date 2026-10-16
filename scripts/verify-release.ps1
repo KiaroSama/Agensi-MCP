@@ -12,7 +12,29 @@ $ErrorActionPreference = 'Stop'
 Initialize-SigningLog 'verify-release'
 $key = $null
 $temporary = $null
+$stage = 'public-descriptor'
+function Invoke-PublicVerificationCommand([string]$Program, [string[]]$Arguments) {
+    if (-not (($Program -ceq '/usr/bin/codesign' -and $Arguments[0] -cin @('--verify','-d')) -or ($Program -ceq '/usr/bin/security' -and $Arguments[0] -ceq 'verify-cert'))) { throw 'Public verification diagnostics refused for this command.' }
+    Write-SigningLog INFO ('Verification stage=' + $script:stage + '.')
+    $result = Invoke-SigningProcess $Program $Arguments -AllowFailure
+    if ($result.ExitCode -ne 0) {
+        $classification = 'unknown'
+        foreach ($known in @('errSecInternalComponent','invalid signature','code or signature modified','does not satisfy','not trusted','certificate verify failed','unable to build chain','CSSMERR_TP_NOT_TRUSTED')) {
+            if ($result.Stderr.Contains($known, [StringComparison]::OrdinalIgnoreCase)) { $classification = $known; break }
+        }
+        $detail = $result.Stderr
+        foreach ($sensitive in @($env:AGENSI_SIGNING_PFX_B64, $env:AGENSI_SIGNING_PASSWORD, $Path, $SigningDirectory, $temporary, $script:SigningRoot)) {
+            if ($sensitive) { $detail = $detail.Replace($sensitive, '[REDACTED]') }
+        }
+        $detail = [regex]::Replace($detail, '[\p{Cc}\p{Cf}]', ' ')
+        if ($detail.Length -gt 2048) { $detail = $detail.Substring(0, 2048) }
+        Write-SigningLog ERROR ('Public native verification failed; stage={0}; exit={1}; classification={2}; public_detail={3}' -f $script:stage, $result.ExitCode, $classification, $detail)
+        throw 'Native release verification failed.'
+    }
+    return $result
+}
 try {
+    Write-SigningLog INFO 'Verification stage=public-descriptor.'
     $Path = [IO.Path]::GetFullPath($Path)
     Assert-SigningPath $Path
     if (-not $SigningDirectory) { $SigningDirectory = Join-Path $script:SigningRoot 'signing' }
@@ -23,6 +45,8 @@ try {
     $key = [Security.Cryptography.RSA]::Create()
     $key.ImportFromPem([IO.File]::ReadAllText((Join-Path $SigningDirectory 'public-key.pem'), [Text.UTF8Encoding]::new($false, $true)))
     $signature = [Convert]::FromBase64String([IO.File]::ReadAllText($SignaturePath, [Text.UTF8Encoding]::new($false, $true)).Trim())
+    $stage = 'detached-signature'
+    Write-SigningLog INFO 'Verification stage=detached-signature.'
     $stream = [IO.File]::OpenRead($Path)
     try {
         if (-not $key.VerifyData($stream, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)) { throw 'Detached signature verification failed.' }
@@ -33,29 +57,37 @@ try {
             $references = @((Get-ChildItem (Join-Path $PSHOME 'ref/*.dll')).FullName) + (Join-Path $PSHOME 'System.Security.Cryptography.Pkcs.dll')
             Add-Type -Path (Join-Path $PSScriptRoot 'WindowsAuthenticode.cs') -ReferencedAssemblies $references
         }
+        $stage = 'windows-authenticode'
+        Write-SigningLog INFO 'Verification stage=windows-authenticode.'
         [AgensiAuthenticode]::Verify($Path, (Join-Path $SigningDirectory 'signer.pem'), (Join-Path $SigningDirectory 'root.pem'))
     } elseif ($Platform.StartsWith('macos-')) {
         if (-not $IsMacOS) { throw 'Native macOS signature verification requires macOS.' }
         $requirement = 'certificate leaf = H"' + $descriptor.leaf_sha1 + '"'
-        Invoke-SigningProcess /usr/bin/codesign @('--verify','--strict','-R',$requirement,$Path) | Out-Null
-        $details = Invoke-SigningProcess /usr/bin/codesign @('-d','--verbose=4',$Path)
+        $stage = 'mac-native-integrity-and-requirement'
+        Invoke-PublicVerificationCommand /usr/bin/codesign @('--verify','--strict','-R',$requirement,$Path) | Out-Null
+        $stage = 'mac-native-display'
+        $details = Invoke-PublicVerificationCommand /usr/bin/codesign @('-d','--verbose=4',$Path)
         if (($details.Stdout + $details.Stderr) -match 'Signature=adhoc' -or ($details.Stdout + $details.Stderr) -notmatch 'Authority=KiaroSama') { throw 'macOS signature is not the approved certificate-backed identity.' }
         $temporary = Protect-SigningDirectory (Join-Path $script:SigningRoot ('.tmp/verify-signature-' + [guid]::NewGuid().ToString('N')))
         $prefix = Join-Path $temporary 'certificate'
-        Invoke-SigningProcess /usr/bin/codesign @('-d','--extract-certificates',$prefix,$Path) | Out-Null
+        $stage = 'mac-native-certificate-extraction'
+        Invoke-PublicVerificationCommand /usr/bin/codesign @('-d','--extract-certificates',$prefix,$Path) | Out-Null
         $leaf = [Security.Cryptography.X509Certificates.X509Certificate2]::new([IO.File]::ReadAllBytes($prefix + '0'))
         try { if ($leaf.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() -cne $descriptor.leaf_sha256) { throw 'macOS signer pin mismatch.' } } finally { $leaf.Dispose() }
-        Invoke-SigningProcess /usr/bin/security @('verify-cert','-c',(Join-Path $SigningDirectory 'signer.pem'),'-r',(Join-Path $SigningDirectory 'root.pem'),'-p','codeSign','-N','-L') | Out-Null
+        $stage = 'mac-explicit-private-chain'
+        Invoke-PublicVerificationCommand /usr/bin/security @('verify-cert','-c',(Join-Path $SigningDirectory 'signer.pem'),'-r',(Join-Path $SigningDirectory 'root.pem'),'-p','codeSign','-N','-L') | Out-Null
     }
     if ($Platform -ne 'detached') {
         if ($SourceCommit -cnotmatch '^[0-9a-f]{40}$' -or $Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected release source commit and version are required.' }
+        $stage = 'verified-doctor-identity'
+        Write-SigningLog INFO 'Verification stage=verified-doctor-identity.'
         $result = Invoke-SigningProcess $Path @('doctor')
         $identity = $result.Stdout | ConvertFrom-Json
         if ($identity.publisher -cne 'KiaroSama' -or $identity.source_commit -cne $SourceCommit -or $identity.version -cne $Version) { throw 'Executable publisher, version or source identity mismatch.' }
     }
     Write-SigningLog INFO 'Signature, approved publisher pins and requested source identity verified; private trust only.'
 } catch {
-    Write-SigningLog ERROR 'Release verification failed; signature or identity is not accepted.'
+    Write-SigningLog ERROR ('Release verification failed; stage={0}; exception={1}; hresult={2}; line={3}; payload omitted.' -f $stage, $_.Exception.GetType().Name, $_.Exception.HResult, $_.InvocationInfo.ScriptLineNumber)
     throw
 } finally {
     if ($key) { $key.Dispose() }
