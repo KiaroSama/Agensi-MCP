@@ -189,6 +189,13 @@ final class Fixture {
         deadline.schedule(deadline: .now() + 7)
         deadline.setEventHandler {
             if worker.isRunning { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
+            let tail = try? output.fileHandleForReading.read(upToCount: 32)
+            let code = tail.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .newlines)
+            if let code, code.range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
+                self.event("ERROR", "Native prompt deadline worker=" + code)
+            } else {
+                self.event("ERROR", "Native prompt deadline; worker status=" + String(worker.terminationStatus))
+            }
             _exit(1)
         }
         deadline.resume()
