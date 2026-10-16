@@ -201,13 +201,21 @@ final class Fixture {
         let payload = try JSONSerialization.data(withJSONObject: ["marker": marker, "name": identity.name, "password": password])
         try input.fileHandleForWriting.write(contentsOf: payload)
         try input.fileHandleForWriting.close()
-        var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-        guard poll(&ready, 1, 2000) == 1 else { throw FixtureFailure(stage: "prompt-readiness-timeout") }
-        let handshake = try output.fileHandleForReading.read(upToCount: 32) ?? Data()
-        guard handshake == Data("R".utf8) else {
+        let readyDeadline = Date().addingTimeInterval(2)
+        var handshake = Data()
+        while handshake.count < 32 && !handshake.contains(10) {
+            let remaining = max(0, Int32(readyDeadline.timeIntervalSinceNow * 1000))
+            var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            guard remaining > 0, poll(&ready, 1, remaining) == 1 else {
+                throw FixtureFailure(stage: "prompt-readiness-timeout")
+            }
+            guard let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty else { break }
+            handshake.append(byte)
+        }
+        guard handshake == Data([82, 10]) else {
             if let text = String(data: handshake, encoding: .utf8),
-               text.range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
-                throw FixtureFailure(stage: "prompt-readiness-" + text)
+               text.trimmingCharacters(in: .newlines).range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
+                throw FixtureFailure(stage: "prompt-readiness-" + text.trimmingCharacters(in: .newlines))
             }
             throw FixtureFailure(stage: "prompt-readiness-protocol")
         }

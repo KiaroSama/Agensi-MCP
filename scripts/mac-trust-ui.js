@@ -3,7 +3,7 @@ ObjC.import('stdlib');
 
 let stage = 1;
 function fail(code) {
-    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code).dataUsingEncoding($.NSUTF8StringEncoding));
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.exit(code > 0 && code < 128 ? code : 70);
 }
 function agentWindows(system) {
@@ -45,11 +45,11 @@ function run() {
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
         stage = 2;
         const system = Application('System Events');
-        if (!system.uiElementsEnabled()) fail(65);
+        if (!system.UIElementsEnabled()) fail(65);
         stage = 3;
         if (agentWindows(system).length !== 0) fail(65);
         stage = 4;
-        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R').dataUsingEncoding($.NSUTF8StringEncoding));
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
         while (Date.now() < deadline) {
             const windows = agentWindows(system);
