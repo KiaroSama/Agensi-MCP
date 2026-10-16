@@ -62,7 +62,7 @@ try {
         [AgensiAuthenticode]::Verify($Path, (Join-Path $SigningDirectory 'signer.pem'), (Join-Path $SigningDirectory 'root.pem'))
     } elseif ($Platform.StartsWith('macos-')) {
         if (-not $IsMacOS) { throw 'Native macOS signature verification requires macOS.' }
-        $requirement = 'certificate leaf = H"' + $descriptor.leaf_sha1 + '"'
+        $requirement = '=certificate leaf = H"' + $descriptor.leaf_sha1 + '"'
         $stage = 'mac-native-integrity-and-requirement'
         Invoke-PublicVerificationCommand /usr/bin/codesign @('--verify','--strict','-R',$requirement,$Path) | Out-Null
         $stage = 'mac-native-display'
@@ -71,7 +71,7 @@ try {
         $temporary = Protect-SigningDirectory (Join-Path $script:SigningRoot ('.tmp/verify-signature-' + [guid]::NewGuid().ToString('N')))
         $prefix = Join-Path $temporary 'certificate'
         $stage = 'mac-native-certificate-extraction'
-        Invoke-PublicVerificationCommand /usr/bin/codesign @('-d','--extract-certificates',$prefix,$Path) | Out-Null
+        Invoke-PublicVerificationCommand /usr/bin/codesign @('-d',('--extract-certificates=' + $prefix),$Path) | Out-Null
         $leaf = [Security.Cryptography.X509Certificates.X509Certificate2]::new([IO.File]::ReadAllBytes($prefix + '0'))
         try { if ($leaf.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() -cne $descriptor.leaf_sha256) { throw 'macOS signer pin mismatch.' } } finally { $leaf.Dispose() }
         $stage = 'mac-explicit-private-chain'

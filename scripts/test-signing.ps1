@@ -32,9 +32,10 @@ try {
         }
     } finally { $wrongKey.Dispose() }
     if ($IsMacOS) {
-        $rejectedRequirement = 'certificate leaf = H"' + ('0' * 40) + '"'
+        $rejectedRequirement = '=certificate leaf = H"' + ('0' * 40) + '"'
         $result = Invoke-SigningProcess /usr/bin/codesign @('--verify','--strict','-R',$rejectedRequirement,$candidate) -AllowFailure
-        if ($result.ExitCode -eq 0) { throw 'Wrong native macOS signer requirement accepted.' }
+        # Native exit3 means intact signed code rejected this valid requirement, not a parsing/file error.
+        if ($result.ExitCode -ne 3) { throw 'Wrong native macOS signer must fail with an unmet requirement, not an operational or syntax error.' }
     }
     $stream = [IO.File]::Open($candidate, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     try {
