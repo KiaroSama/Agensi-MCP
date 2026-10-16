@@ -13,6 +13,7 @@ function attribute(element, name, optional) {
     const value = Ref();
     const status = Number($.AXUIElementCopyAttributeValue(element, $(name), value));
     if (optional && (status === -25205 || status === -25212)) return null;
+    if (status === -25204 && stage === 4) throw { snapshotPending: true };
     if (status !== 0) fail(status);
     return ObjC.castRefToObject(value[0]);
 }
@@ -78,14 +79,24 @@ function run() {
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
         while (Date.now() < deadline) {
-            const windows = agentWindows();
-            if (windows.length > 1) fail(65);
-            if (windows.length === 1) {
-                const controls = inspect(windows[0]);
-                if (!controls.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
-                const approve = controls.buttons.filter(button => ['OK', 'Modify Settings', 'Update Settings'].indexOf(text(button, 'AXTitle')) !== -1);
-                if (controls.users.length !== 1 || controls.passwords.length !== 1 || approve.length !== 1) fail(68);
-                if (agentWindows().length !== 1) fail(65);
+            let controls;
+            let approve;
+            try {
+                const windows = agentWindows();
+                if (windows.length > 1) fail(65);
+                if (windows.length === 1) {
+                    controls = inspect(windows[0]);
+                    if (!controls.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
+                    approve = controls.buttons.filter(button => ['OK', 'Modify Settings', 'Update Settings'].indexOf(text(button, 'AXTitle')) !== -1);
+                    if (controls.users.length !== 1 || controls.passwords.length !== 1 || approve.length !== 1) fail(68);
+                    if (agentWindows().length !== 1) fail(65);
+                }
+            } catch (error) {
+                if (!error.snapshotPending) throw error;
+                controls = null;
+                approve = null;
+            }
+            if (controls && approve) {
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
                 if (Number($.AXUIElementSetAttributeValue(controls.passwords[0], $('AXValue'), $(input.password))) !== 0) fail(68);
                 input.password = '';
