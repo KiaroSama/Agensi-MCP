@@ -6,6 +6,11 @@ on:
         description: 'Empty = internal validation; vX.Y.Z = verified private-signed release on main'
         required: false
         type: string
+      native_diagnostics:
+        description: 'Partial native failure investigation only; never release acceptance'
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -33,15 +38,18 @@ jobs:
         run: |
           & ./scripts/sign-release.ps1 -Path ./target/release/agensi-mcp -Preflight
   dependencies:
+    if: ${{ !inputs.native_diagnostics }}
     uses: ./.github/workflows/dependency-review.yml
     permissions:
       contents: read
   codeql:
+    if: ${{ !inputs.native_diagnostics }}
     uses: ./.github/workflows/codeql.yml
     permissions:
       contents: read
       security-events: write
   native:
+    if: ${{ !inputs.native_diagnostics }}
     needs: [release-readiness]
     strategy:
       fail-fast: false
@@ -253,8 +261,98 @@ jobs:
           path: .tmp/ci-review/
           if-no-files-found: error
           retention-days: 7
+  native-diagnostics:
+    name: Partial native diagnostics (${{ matrix.os }})
+    if: ${{ inputs.native_diagnostics && github.ref == 'refs/heads/fix/private-signed-release' && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama' }}
+    needs: [release-readiness]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows-x64
+          - os: macos-15
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cache/cargo
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_BUILD_JOBS: 4
+      AGENSI_SOURCE_COMMIT: ${{ github.sha }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Initialize owned scratch and diagnostic identity
+        run: |
+          if ('${{ inputs.release_tag }}' -cne 'v2.1.6') { throw 'Expected diagnostic version v2.1.6.' }
+          New-Item .tmp -ItemType Directory -Force | Out-Null
+          foreach ($key in @('TEMP','TMP','TMPDIR')) { "$key=$env:GITHUB_WORKSPACE/.tmp" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append }
+          'Partial native diagnostics; not final validation or release acceptance.'
+      - name: Build bounded native diagnostic owner
+        timeout-minutes: 15
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.99.0 build --locked --bin check-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $name = if ($IsWindows) { 'check-run.exe' } else { 'check-run' }
+          Copy-Item "target/debug/$name" ".tmp/$name"
+          "CHECK_RUN=./.tmp/$name" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build Windows diagnostic executable and fixture
+        if: runner.os == 'Windows'
+        timeout-minutes: 12
+        run: |
+          & $env:CHECK_RUN --wall 600 --idle 120 -- cargo +1.99.0 build --locked --bin agensi-mcp --test audit_blackbox
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item bin -ItemType Directory -Force | Out-Null
+          Copy-Item target/debug/agensi-mcp.exe bin/agensi-mcp.exe
+      - name: Diagnose Windows native TLS fixture
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: |
+          & pwsh -NoProfile -File scripts/test-tls-proxy-ci.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build macOS diagnostic executable
+        if: runner.os == 'macOS'
+        timeout-minutes: 16
+        run: |
+          & $env:CHECK_RUN --wall 900 --idle 180 -- cargo +1.99.0 build --locked --release --bin agensi-mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Diagnose macOS native signing and verification
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
+          AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
+        run: |
+          & $env:CHECK_RUN --wall 120 --idle 30 -- pwsh -NoProfile -File scripts/sign-release.ps1 -Path target/release/agensi-mcp -Platform '${{ matrix.platform }}' -SourceCommit $env:GITHUB_SHA -Version 2.1.6
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:CHECK_RUN --wall 120 --idle 30 -- pwsh -NoProfile -File scripts/test-signing.ps1 -Path target/release/agensi-mcp -Platform '${{ matrix.platform }}' -SourceCommit $env:GITHUB_SHA -Version 2.1.6
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain allowlisted synthetic diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: partial-native-diagnostics-${{ matrix.platform }}
+          include-hidden-files: true
+          path: |
+            .tmp/tls-proxy-results.json
+            .tmp/tls-ci-*/*.log
+            .tmp/tls-ci-*/*.diagnostic.txt
+            .tmp/tls-ci-*/cleanup.json
+            logs/verify-release_*.log
+            logs/sign-release_*.log
+          if-no-files-found: warn
+          retention-days: 7
   release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
+    if: github.event_name == 'workflow_dispatch' && !inputs.native_diagnostics && github.ref == 'refs/heads/main' && inputs.release_tag != ''
     needs: [release-readiness, native, dependencies, codeql]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -83,6 +83,11 @@ cleanup status. The default `all` phase retains original98 cases plus its separa
 extensions and excludes these dedicated TLS cases. Implementation is not a passing result: inspect
 actual final exact-SHA hosted reports before claiming all-platform parity.
 
+The manual workflow's `native_diagnostics` input defaults to false. When explicitly enabled on the
+reviewed repair branch, it runs only Windows TLS-fixture and macOS signature investigation. Those
+partial jobs never publish or establish full acceptance; ordinary validation and release still
+require the complete non-diagnostic workflow.
+
 The wrapper permits temporary fixture trust, name mapping and network restrictions only on disposable
 GitHub-hosted runners, then removes its owned changes. No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
