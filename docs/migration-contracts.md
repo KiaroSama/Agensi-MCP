@@ -140,7 +140,8 @@ installation happens automatically. The registration/menu runtime retains its ex
 floor; only new signing/verification tools require7.4.
 
 Signing tools write one UTF-8 UTC structured log per invocation under `logs/` with INFO/ERROR status,
-no passwords, key data or child diagnostic payload. Logging-init failure falls back safely to stderr;
+no passwords or key data. Native macOS codesign failures include a bounded, redacted public diagnostic;
+protected keychain command input/output is never included. Logging-init failure falls back safely to stderr;
 there is no automatic retention deletion. Close handlers on completion, review logs locally and attach
 only sanitized status for support. Private inputs are encrypted locally, passed only to necessary
 same-repository manual signing steps, and removed from child process environments. The private root
