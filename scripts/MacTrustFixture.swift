@@ -170,6 +170,7 @@ final class Fixture {
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
         var operationError: Error?
+        var probe: AuthorizationRef?
         let environmentNames: [UnsafeMutablePointer<CChar>] = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].compactMap { value in
             value.withCString { strdup($0) }
         }
@@ -192,16 +193,29 @@ final class Fixture {
                             ]
                             return environment.withUnsafeMutableBufferPointer { buffer in
                                 var inputs = AuthorizationEnvironment(count: UInt32(buffer.count), items: buffer.baseAddress)
-                                return AuthorizationCopyRights(authorization, &rights, &inputs, [.extendRights, .preAuthorize], nil)
+                                return AuthorizationCopyRights(authorization, &rights, &inputs, [.extendRights], nil)
                             }
                         }
                     }
                 }
             }
             try Self.check(status, "authorization-genuine-admin")
+            try Self.check(AuthorizationCreate(nil, nil, [], &probe), "authorization-probe-create")
+            guard let probe else { throw FixtureFailure(stage: "authorization-probe-reference") }
+            let probeStatus = "com.apple.trust-settings.admin".withCString { right in
+                var item = AuthorizationItem(name: right, valueLength: 0, value: nil, flags: 0)
+                return withUnsafeMutablePointer(to: &item) { pointer in
+                    var rights = AuthorizationRights(count: 1, items: pointer)
+                    return AuthorizationCopyRights(probe, &rights, nil, [.extendRights], nil)
+                }
+            }
+            try Self.check(probeStatus, "authorization-shared-capability")
             try operation()
         } catch { operationError = error }
-        try Self.check(AuthorizationFree(authorization, [.destroyRights]), "authorization-destroy")
+        let probeCleanup = probe.map { AuthorizationFree($0, [.destroyRights]) } ?? errSecSuccess
+        let authorizationCleanup = AuthorizationFree(authorization, [.destroyRights])
+        try Self.check(probeCleanup, "authorization-probe-destroy")
+        try Self.check(authorizationCleanup, "authorization-destroy")
         if let operationError { throw operationError }
         event("INFO", "Owned authorization destroyed after native operation.")
     }
