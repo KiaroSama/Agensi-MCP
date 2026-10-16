@@ -188,6 +188,19 @@ jobs:
                 & $sudo -n $chown -h "${ownerId}:${groupId}" $report
                 if ($LASTEXITCODE -ne 0) { throw 'Sanitized report ownership handoff failed.' }
               }
+              if ($IsMacOS) {
+                $chown = (Get-Command chown -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+                foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.tmp') -Directory) {
+                  if ($directory.Name -cnotmatch '^tls-ci-[0-9a-f]{32}$') { continue }
+                  if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked native diagnostic directory refused.' }
+                  foreach ($file in Get-ChildItem -LiteralPath $directory.FullName -File -Filter 'mac-trust-fixture_*.log') {
+                    if ($file.Name -cnotmatch '^mac-trust-fixture_[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\.log$' -or
+                        ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid native diagnostic log refused.' }
+                    & $sudo -n $chown -h "${ownerId}:${groupId}" $file.FullName
+                    if ($LASTEXITCODE -ne 0) { throw 'Sanitized native log ownership handoff failed.' }
+                  }
+                }
+              }
             }
             exit $result
           }
@@ -343,6 +356,16 @@ jobs:
             if (Test-Path -LiteralPath $report) {
               & $sudo -n /usr/sbin/chown -h "${ownerId}:${groupId}" $report
               if ($LASTEXITCODE -ne 0) { throw 'Sanitized report ownership handoff failed.' }
+            }
+            foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.tmp') -Directory) {
+              if ($directory.Name -cnotmatch '^tls-ci-[0-9a-f]{32}$') { continue }
+              if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked native diagnostic directory refused.' }
+              foreach ($file in Get-ChildItem -LiteralPath $directory.FullName -File -Filter 'mac-trust-fixture_*.log') {
+                if ($file.Name -cnotmatch '^mac-trust-fixture_[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\.log$' -or
+                    ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid native diagnostic log refused.' }
+                & $sudo -n /usr/sbin/chown -h "${ownerId}:${groupId}" $file.FullName
+                if ($LASTEXITCODE -ne 0) { throw 'Sanitized native log ownership handoff failed.' }
+              }
             }
           }
           exit $result

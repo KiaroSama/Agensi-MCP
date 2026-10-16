@@ -97,7 +97,10 @@ The hosted-only native helper instead creates an owned temporary administrator, 
 password in memory, and authenticates through Apple's Authorization API in an isolated security
 session for each trust removal. It destroys acquired rights and verifies exact account/membership
 removal, including a controlled failure and journal recovery. Native CI must prove this capability;
-runner disposal is not proof of explicit cleanup. No workstation account or policy is changed.
+runner disposal is not proof of explicit cleanup. Account failures expose only fixed operation labels
+and numeric native status, never credential payloads. Only sanitized helper logs are handed back to
+the artifact uploader; private recovery journals retain root-only ownership. No workstation account
+or policy is changed.
 
 ## Runtime evidence and limits
 

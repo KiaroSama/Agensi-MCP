@@ -138,21 +138,32 @@ final class Fixture {
         guard let uid = selected else { throw FixtureFailure(stage: "account-uid-collision") }
         let identity = AccountIdentity(name: name, uid: uid, guid: UUID().uuidString)
         try save(identity)
-        let attributes: [AnyHashable: Any] = [
-            kODAttributeTypeUniqueID: uid, kODAttributeTypePrimaryGroupID: "20",
-            kODAttributeTypeGUID: identity.guid, kODAttributeTypeNFSHomeDirectory: "/var/empty",
-            kODAttributeTypeUserShell: "/usr/bin/false", kODAttributeTypeFullName: "Agensi temporary TLS fixture"
+        let attributes: [String: [String]] = [
+            kODAttributeTypeUniqueID: [uid], kODAttributeTypePrimaryGroupID: ["20"],
+            kODAttributeTypeGUID: [identity.guid], kODAttributeTypeNFSHomeDirectory: ["/var/empty"],
+            kODAttributeTypeUserShell: ["/usr/bin/false"], kODAttributeTypeFullName: ["Agensi temporary TLS fixture"]
         ]
-        let record = try node.createRecord(withRecordType: kODRecordTypeUsers, name: name, attributes: attributes)
-        try record.changePassword(nil, toPassword: password)
-        try record.verifyPassword(password)
-        try admin.addMemberRecord(record)
-        guard try values(admin, kODAttributeTypeGroupMembers).contains(identity.guid),
-              try values(admin, kODAttributeTypeGroupMembership).contains(identity.name),
-              try values(record, kODAttributeTypeUniqueID) == [uid],
-              try values(record, kODAttributeTypeGUID) == [identity.guid] else { throw FixtureFailure(stage: "account-create-readback") }
-        event("INFO", "Owned temporary admin created and native password verified; no home created.")
-        return identity
+        var stage = "account-create"
+        do {
+            let record = try node.createRecord(withRecordType: kODRecordTypeUsers, name: name, attributes: attributes)
+            stage = "account-password-set"
+            try record.changePassword(nil, toPassword: password)
+            stage = "account-password-verify"
+            try record.verifyPassword(password)
+            stage = "account-admin-add"
+            try admin.addMemberRecord(record)
+            stage = "account-create-readback"
+            guard try values(admin, kODAttributeTypeGroupMembers).contains(identity.guid),
+                  try values(admin, kODAttributeTypeGroupMembership).contains(identity.name),
+                  try values(record, kODAttributeTypeUniqueID) == [uid],
+                  try values(record, kODAttributeTypeGUID) == [identity.guid] else { throw FixtureFailure(stage: stage) }
+            event("INFO", "Owned temporary admin created and native password verified; no home created.")
+            return identity
+        } catch let failure as FixtureFailure {
+            throw failure
+        } catch {
+            throw FixtureFailure(stage: stage + ":" + String((error as NSError).code))
+        }
     }
     func authorize(_ identity: AccountIdentity, password: String, operation: () throws -> Void) throws {
         var authorization: AuthorizationRef?
