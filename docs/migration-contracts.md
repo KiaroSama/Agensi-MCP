@@ -94,14 +94,17 @@ proxy/account traffic are involved. Ordinary four-platform TLS unit tests are no
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
 protected administrative trust authorization right. No authorization-policy workaround is used.
 The hosted-only native helper creates an owned temporary administrator with a memory-only random
-password in an isolated security session. Its capability gate requires immediate credential
-authorization and an independent fresh-reference challenge without credentials or UI before trust
-mutation. Preauthorization success alone is insufficient: Apple's hardcoded administrative rule has
-zero credential-cache lifetime, and hosted native trust removal currently returns -60007 despite
-successful account creation/password verification. This route has not established supported silent
-cleanup. All acquired references are destroyed and exact account/membership removal is verified,
-including error recovery. Native CI must prove the full capability; runner disposal is not proof of
-explicit cleanup. Account failures expose only fixed operation labels
+password in an isolated security session. Cached preauthorization is not a supported cleanup route:
+Apple's hardcoded administrative rule has zero credential-cache lifetime. The hosted-only capability
+experiment requests the public graphics-session attribute and uses the runner image's existing
+osascript Accessibility/System Events consent for genuine SecurityAgent authentication. A worker
+receives only the owned temporary credentials through stdin and accepts exactly one native prompt
+containing the unique invocation executable name. It never grants permissions, changes TCC or
+accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
+fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact
+account/membership removal is checked, including error recovery. Actual hosted results must prove
+this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
+cleanup. Account failures expose only fixed operation labels
 and numeric native status, never credential payloads. Only sanitized helper logs are handed back to
 the artifact uploader; private recovery journals retain root-only ownership. No workstation account
 or policy is changed.

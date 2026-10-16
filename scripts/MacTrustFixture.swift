@@ -45,10 +45,13 @@ final class Fixture {
         log = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var before: SecuritySessionId = 0
         try Self.check(SessionGetInfo(callerSecuritySession, &before, nil), "session-before")
-        try Self.check(SessionCreate(SessionCreationFlags(rawValue: 0), SessionAttributeBits(rawValue: 0)), "session-create")
+        try Self.check(SessionCreate(SessionCreationFlags(rawValue: 0), [.sessionHasGraphicAccess]), "session-create")
         var after: SecuritySessionId = 0
-        try Self.check(SessionGetInfo(callerSecuritySession, &after, nil), "session-after")
-        guard after != 0, before != after else { throw FixtureFailure(stage: "session-isolation") }
+        var attributes = SessionAttributeBits(rawValue: 0)
+        try Self.check(SessionGetInfo(callerSecuritySession, &after, &attributes), "session-after")
+        guard after != 0, before != after, attributes.contains(.sessionHasGraphicAccess) else {
+            throw FixtureFailure(stage: "session-isolation-or-graphics")
+        }
         node = try ODNode(session: ODSession.default(), type: UInt32(kODNodeTypeLocalNodes))
         admin = try node.record(withRecordType: kODRecordTypeGroups, name: "admin", attributes: kODAttributeTypeAllAttributes)
         event("INFO", "Isolated native authorization session established.")
@@ -165,59 +168,77 @@ final class Fixture {
             throw FixtureFailure(stage: stage + ":" + String((error as NSError).code))
         }
     }
-    func authorize(_ identity: AccountIdentity, password: String, operation: () throws -> Void) throws {
+    func withPrompt(_ identity: AccountIdentity, password: String, operation: () throws -> Void) throws {
+        let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
+        guard marker.hasPrefix("mac-trust-"), marker.count == 42,
+              marker.dropFirst(10).allSatisfy({ $0.isHexDigit }) else { throw FixtureFailure(stage: "prompt-marker") }
+        let script = state.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("scripts/mac-trust-ui.js")
+        guard script.resolvingSymlinksInPath() == script else { throw FixtureFailure(stage: "prompt-script") }
+        let worker = Process()
+        let input = Pipe()
+        let output = Pipe()
+        worker.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        worker.arguments = ["-l", "JavaScript", script.path]
+        worker.standardInput = input
+        worker.standardOutput = output
+        worker.standardError = FileHandle.nullDevice
+        worker.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
+        try worker.run()
+        let deadline = DispatchSource.makeTimerSource(queue: .global())
+        deadline.schedule(deadline: .now() + 7)
+        deadline.setEventHandler {
+            if worker.isRunning { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
+            _exit(1)
+        }
+        deadline.resume()
+        defer {
+            deadline.cancel()
+            if worker.isRunning { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
+            try? input.fileHandleForWriting.close()
+            try? output.fileHandleForReading.close()
+        }
+        let payload = try JSONSerialization.data(withJSONObject: ["marker": marker, "name": identity.name, "password": password])
+        try input.fileHandleForWriting.write(contentsOf: payload)
+        try input.fileHandleForWriting.close()
+        var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+        guard poll(&ready, 1, 2000) == 1,
+              try output.fileHandleForReading.read(upToCount: 1) == Data("R".utf8) else {
+            throw FixtureFailure(stage: "prompt-readiness")
+        }
+        event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
+        var operationError: Error?
+        do { try operation() } catch { operationError = error }
+        worker.waitUntilExit()
+        guard worker.terminationStatus == 0 else {
+            throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
+        }
+        if let operationError { throw operationError }
+        event("INFO", "Exact native prompt authenticated and owned worker reaped.")
+    }
+    func verifyPrompt() throws {
         var authorization: AuthorizationRef?
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
-        var operationError: Error?
-        var probe: AuthorizationRef?
-        let environmentNames: [UnsafeMutablePointer<CChar>] = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].compactMap { value in
-            value.withCString { strdup($0) }
-        }
-        defer { environmentNames.forEach { free($0) } }
-        guard environmentNames.count == 3 else {
-            _ = AuthorizationFree(authorization, [.destroyRights])
-            throw FixtureFailure(stage: "authorization-allocation")
-        }
-        do {
-            let status = identity.name.withCString { name in
-                password.withCString { secret in
-                    "com.apple.trust-settings.admin".withCString { right in
-                        var item = AuthorizationItem(name: right, valueLength: 0, value: nil, flags: 0)
-                        return withUnsafeMutablePointer(to: &item) { itemPointer in
-                            var rights = AuthorizationRights(count: 1, items: itemPointer)
-                            var environment = [
-                                AuthorizationItem(name: UnsafePointer(environmentNames[0]), valueLength: strlen(name), value: UnsafeMutableRawPointer(mutating: name), flags: 0),
-                                AuthorizationItem(name: UnsafePointer(environmentNames[1]), valueLength: strlen(secret), value: UnsafeMutableRawPointer(mutating: secret), flags: 0),
-                                AuthorizationItem(name: UnsafePointer(environmentNames[2]), valueLength: 0, value: nil, flags: 0)
-                            ]
-                            return environment.withUnsafeMutableBufferPointer { buffer in
-                                var inputs = AuthorizationEnvironment(count: UInt32(buffer.count), items: buffer.baseAddress)
-                                return AuthorizationCopyRights(authorization, &rights, &inputs, [.extendRights], nil)
-                            }
+        let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
+        let status = marker.withCString { prompt in
+            "prompt".withCString { promptName in
+                "com.apple.trust-settings.admin".withCString { right in
+                    var item = AuthorizationItem(name: right, valueLength: 0, value: nil, flags: 0)
+                    var context = AuthorizationItem(name: promptName, valueLength: strlen(prompt), value: UnsafeMutableRawPointer(mutating: prompt), flags: 0)
+                    return withUnsafeMutablePointer(to: &item) { pointer in
+                        var rights = AuthorizationRights(count: 1, items: pointer)
+                        return withUnsafeMutablePointer(to: &context) { contextPointer in
+                            var environment = AuthorizationEnvironment(count: 1, items: contextPointer)
+                            return AuthorizationCopyRights(authorization, &rights, &environment, [.extendRights, .interactionAllowed], nil)
                         }
                     }
                 }
             }
-            try Self.check(status, "authorization-genuine-admin")
-            try Self.check(AuthorizationCreate(nil, nil, [], &probe), "authorization-probe-create")
-            guard let probe else { throw FixtureFailure(stage: "authorization-probe-reference") }
-            let probeStatus = "com.apple.trust-settings.admin".withCString { right in
-                var item = AuthorizationItem(name: right, valueLength: 0, value: nil, flags: 0)
-                return withUnsafeMutablePointer(to: &item) { pointer in
-                    var rights = AuthorizationRights(count: 1, items: pointer)
-                    return AuthorizationCopyRights(probe, &rights, nil, [.extendRights], nil)
-                }
-            }
-            try Self.check(probeStatus, "authorization-shared-capability")
-            try operation()
-        } catch { operationError = error }
-        let probeCleanup = probe.map { AuthorizationFree($0, [.destroyRights]) } ?? errSecSuccess
-        let authorizationCleanup = AuthorizationFree(authorization, [.destroyRights])
-        try Self.check(probeCleanup, "authorization-probe-destroy")
-        try Self.check(authorizationCleanup, "authorization-destroy")
-        if let operationError { throw operationError }
-        event("INFO", "Owned authorization destroyed after native operation.")
+        }
+        let cleanup = AuthorizationFree(authorization, [.destroyRights])
+        try Self.check(cleanup, "authorization-destroy")
+        try Self.check(status, "authorization-native-prompt")
     }
     func removeTrust(path: String) throws {
         let url = URL(fileURLWithPath: path).standardizedFileURL
@@ -262,9 +283,10 @@ final class Fixture {
         do {
             let identity = try createAccount(password: password)
             if action == "selftest" {
-                try authorize(identity, password: password) { throw FixtureFailure(stage: "controlled-restoration") }
+                try withPrompt(identity, password: password) { try verifyPrompt() }
+                throw FixtureFailure(stage: "controlled-restoration")
             } else {
-                for path in paths { try authorize(identity, password: password) { try removeTrust(path: path) } }
+                for path in paths { try withPrompt(identity, password: password) { try removeTrust(path: path) } }
             }
         } catch { operationError = error }
         try recover()

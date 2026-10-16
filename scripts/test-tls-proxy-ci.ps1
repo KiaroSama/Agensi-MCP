@@ -142,9 +142,15 @@ function Save-Ledger($Ledger) {
 function Invoke-MacTrustFixture([string]$Mode, [string[]]$Certificates = @()) {
     $helper = Assert-OwnedPath (Join-Path $root '.tmp/mac-trust-fixture')
     if (-not [IO.File]::Exists($helper)) { throw 'Prebuilt native macOS trust fixture is unavailable.' }
-    Write-CiLog INFO "Native trust fixture mode=$Mode started"
-    $null = Invoke-Bounded $helper (@($Mode,$state) + $Certificates)
-    Write-CiLog INFO "Native trust fixture mode=$Mode completed"
+    $invocation = Assert-OwnedPath (Join-Path $state ('mac-trust-' + [Guid]::NewGuid().ToString('N')))
+    [IO.File]::Copy($helper, $invocation, $false)
+    try {
+        Write-CiLog INFO "Native trust fixture mode=$Mode started"
+        $null = Invoke-Bounded $invocation (@($Mode,$state) + $Certificates)
+        Write-CiLog INFO "Native trust fixture mode=$Mode completed"
+    } finally {
+        if ([IO.File]::Exists($invocation)) { [IO.File]::Delete($invocation) }
+    }
 }
 function Remove-CaseState {
     $cleanupStage = 'ledger'
