@@ -1,7 +1,11 @@
 ObjC.import('Foundation');
 ObjC.import('stdlib');
 
-function fail(code) { $.exit(code); }
+let stage = 1;
+function fail(code) {
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code).dataUsingEncoding($.NSUTF8StringEncoding));
+    $.exit(code > 0 && code < 128 ? code : 70);
+}
 function agentWindows(system) {
     const agents = system.applicationProcesses.whose({ name: 'SecurityAgent' })();
     if (agents.length > 1) fail(65);
@@ -39,8 +43,12 @@ function run() {
             typeof input.marker !== 'string' || !/^mac-trust-[0-9a-f]{32}$/.test(input.marker) ||
             typeof input.name !== 'string' || !/^_agensitls[0-9a-f]{16}$/.test(input.name) ||
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
+        stage = 2;
         const system = Application('System Events');
-        if (!system.uiElementsEnabled() || agentWindows(system).length !== 0) fail(65);
+        if (!system.uiElementsEnabled()) fail(65);
+        stage = 3;
+        if (agentWindows(system).length !== 0) fail(65);
+        stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
         while (Date.now() < deadline) {
@@ -60,5 +68,8 @@ function run() {
             delay(0.05);
         }
         fail(69);
-    } catch (_) { fail(70); }
+    } catch (error) {
+        const code = Number(error.errorNumber);
+        fail(Number.isInteger(code) && Math.abs(code) <= 1000000 ? code : 70);
+    }
 }

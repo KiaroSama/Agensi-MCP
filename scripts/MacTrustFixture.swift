@@ -202,9 +202,14 @@ final class Fixture {
         try input.fileHandleForWriting.write(contentsOf: payload)
         try input.fileHandleForWriting.close()
         var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-        guard poll(&ready, 1, 2000) == 1,
-              try output.fileHandleForReading.read(upToCount: 1) == Data("R".utf8) else {
-            throw FixtureFailure(stage: "prompt-readiness")
+        guard poll(&ready, 1, 2000) == 1 else { throw FixtureFailure(stage: "prompt-readiness-timeout") }
+        let handshake = try output.fileHandleForReading.read(upToCount: 32) ?? Data()
+        guard handshake == Data("R".utf8) else {
+            if let text = String(data: handshake, encoding: .utf8),
+               text.range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
+                throw FixtureFailure(stage: "prompt-readiness-" + text)
+            }
+            throw FixtureFailure(stage: "prompt-readiness-protocol")
         }
         event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
         var operationError: Error?
