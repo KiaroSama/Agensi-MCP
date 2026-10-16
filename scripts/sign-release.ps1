@@ -85,7 +85,22 @@ try {
         Invoke-KeychainCommand @('set-key-partition-list','-S','apple-tool:,apple:,codesign:','-s','-k',$keychainPassword,$keychain)
         $stage = 'mac-codesign'
         Write-SigningLog INFO 'Signing stage=mac-codesign.'
-        Invoke-SigningProcess /usr/bin/codesign @('--force','--keychain',$keychain,'--sign',$descriptor.leaf_sha1,'--timestamp=none',$Path) | Out-Null
+        $native = Invoke-SigningProcess /usr/bin/codesign @('--force','--keychain',$keychain,'--sign',$descriptor.leaf_sha1,'--timestamp=none',$Path) -AllowFailure
+        if ($native.ExitCode -ne 0) {
+            $classification = 'unknown'
+            foreach ($known in @('errSecInternalComponent','errSecCSSignatureFailed','errSecCSUntrustedCert','errSecCSNoTrustSettings','unable to build chain','no identity found','specified item could not be found','User interaction is not allowed')) {
+                if ($native.Stderr.Contains($known, [StringComparison]::OrdinalIgnoreCase)) { $classification = $known; break }
+            }
+            # Only codesign receives this public diagnostic route, never security -i or its protected input.
+            $detail = $native.Stderr
+            foreach ($sensitive in @($encoded, $password, $keychainPassword, $Path, $keychain, $temporary, $script:SigningRoot)) {
+                if ($sensitive) { $detail = $detail.Replace($sensitive, '[REDACTED]') }
+            }
+            $detail = [regex]::Replace($detail, '[\p{Cc}\p{Cf}]', ' ')
+            if ($detail.Length -gt 2048) { $detail = $detail.Substring(0, 2048) }
+            Write-SigningLog ERROR ('Native codesign failed; exit={0}; classification={1}; public_detail={2}' -f $native.ExitCode, $classification, $detail)
+            throw 'Native certificate-backed signing failed.'
+        }
         Write-SigningLog INFO 'Signing stage=mac-codesign-complete.'
     }
     $stage = 'detached-signature'

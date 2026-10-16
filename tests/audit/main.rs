@@ -9,7 +9,7 @@ mod project;
 mod report;
 mod tls_proxy;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use project::Context;
 use report::Report;
 use serde_json::json;
@@ -122,22 +122,26 @@ fn options() -> Result<Option<Options>> {
     else {
         return Ok(None);
     };
-    let source = source.canonicalize()?;
+    let source = source.canonicalize().context("audit-stage:source-root")?;
     let work = work.unwrap_or_else(|| source.join(".tmp/audit-blackbox"));
     let temp = source.join(".tmp");
-    reject_links(&temp)?;
-    std::fs::create_dir_all(&temp)?;
-    let temp = temp.canonicalize()?;
+    reject_links(&temp).context("audit-stage:temp-ancestors")?;
+    std::fs::create_dir_all(&temp).context("audit-stage:temp-create")?;
+    let temp = temp
+        .canonicalize()
+        .context("audit-stage:temp-canonicalize")?;
     // Canonicalize the existing ancestor before comparing: Windows adds a verbatim
     // prefix even when --work-root uses an ordinary drive-letter spelling.
-    let work = contained(&work, &temp)?;
-    std::fs::create_dir_all(&work)?;
-    let work = work.canonicalize()?;
+    let work = contained(&work, &temp).context("audit-stage:work-containment")?;
+    std::fs::create_dir_all(&work).context("audit-stage:work-create")?;
+    let work = work
+        .canonicalize()
+        .context("audit-stage:work-canonicalize")?;
     ensure!(
         work.starts_with(&temp),
         "Work root escapes project temp directory"
     );
-    let output = contained(&output, &temp)?;
+    let output = contained(&output, &temp).context("audit-stage:output-containment")?;
     ensure!(
         output != temp && !output.is_dir(),
         "Output must name a report file"
@@ -260,10 +264,10 @@ fn resolve_missing(path: &Path) -> Result<PathBuf> {
     Ok(resolved)
 }
 fn reject_links(path: &Path) -> Result<()> {
-    let mut ancestor = PathBuf::new();
-    for component in path.components() {
-        ancestor.push(component);
-        match std::fs::symlink_metadata(&ancestor) {
+    // Prefix-only Windows paths (such as \\?\D:) are not filesystem objects.
+    // Check complete ancestors instead, retaining drive-root and every existing directory.
+    for ancestor in path.ancestors() {
+        match std::fs::symlink_metadata(ancestor) {
             Ok(metadata) => {
                 ensure!(
                     !metadata.file_type().is_symlink(),
@@ -347,10 +351,22 @@ fn main() -> ExitCode {
     let options = match options() {
         Ok(Some(options)) => options,
         Ok(None) => return ExitCode::SUCCESS,
-        Err(_) => {
-            eprintln!(
-                "Audit arguments or isolated fixture prerequisites invalid; use --help. Payload omitted."
-            );
+        Err(error) => {
+            let stage = error
+                .chain()
+                .find_map(|cause| {
+                    let message = cause.to_string();
+                    message
+                        .strip_prefix("audit-stage:")
+                        .filter(|value| {
+                            value
+                                .bytes()
+                                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+                        })
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "arguments-or-binary".into());
+            eprintln!("Audit prerequisite failed stage={stage}; use --help. Payload omitted.");
             return ExitCode::from(2);
         }
     };

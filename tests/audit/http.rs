@@ -243,6 +243,9 @@ pub async fn tls_proxy_cases(context: &mut Context, report: &mut Report) -> Resu
                     direct_positive_tcp = fixture.direct_tcp.load(Ordering::SeqCst);
                     direct_positive_tls = fixture.direct_tls.load(Ordering::SeqCst);
                     direct_ready = positive.success() && positive.json.as_ref().is_some_and(|value| value["connected"] == true && value["tools"] == 1 && value["account_read"] == true) && direct_positive_tcp > 0 && direct_positive_tls > 0;
+                    if !direct_ready {
+                        report.extension("extension-tls-proxy-no-direct", false, json!({"stage":"direct-positive","exit":positive.exit,"timeout":positive.timed_out,"direct_positive_tcp":direct_positive_tcp,"direct_positive_tls":direct_positive_tls}))?;
+                    }
                     ensure!(direct_ready, "Actual CLI direct observer positive failed");
                     fixture.reset_direct();
                     fixture.fail_proxy();

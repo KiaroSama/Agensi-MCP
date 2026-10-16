@@ -265,8 +265,8 @@ try {
         [IO.File]::WriteAllText((Join-Path $state 'invocation.json'), (ConvertTo-Json @{ hosts = $hosts; namespace = $(if ($IsLinux) { $namespace } else { $null }); restored = $false }), $utf8)
         try {
             $text = $utf8.GetString($original)
-            if ($text -match '(?m)^\s*[^#\r\n]+\s+mcp\.agensi\.io(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
-            [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io`n", $utf8)
+            if ($text -match '(?m)^\s*[^#\r\n]+\s+(?:mcp\.agensi\.io|auth\.agensi-audit\.test)(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
+            [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io auth.agensi-audit.test`n", $utf8)
             $env:AGENSI_TLS_CI = '1'
             $env:AGENSI_TLS_CI_STATE = $state
             $env:AGENSI_TLS_CI_SCRIPT = $ownerScript
@@ -296,10 +296,12 @@ try {
         }
     } elseif ($Action -eq 'Recover') { Restore-Invocation }
     elseif ($Action -eq 'Validate') {
-        $lookup = [Net.Dns]::GetHostAddressesAsync('mcp.agensi.io')
-        if (-not $lookup.Wait(3000)) { throw 'Observer hostname resolution deadline.' }
-        $addresses = @($lookup.Result)
-        if (-not $addresses.Count -or @($addresses | Where-Object { $_.ToString() -ne '127.0.0.1' }).Count) { throw 'Observer hostname escaped IPv4 loopback.' }
+        foreach ($hostname in @('mcp.agensi.io','auth.agensi-audit.test')) {
+            $lookup = [Net.Dns]::GetHostAddressesAsync($hostname)
+            if (-not $lookup.Wait(3000)) { throw 'Observer hostname resolution deadline.' }
+            $addresses = @($lookup.Result)
+            if (-not $addresses.Count -or @($addresses | Where-Object { $_.ToString() -ne '127.0.0.1' }).Count) { throw 'Observer hostname escaped IPv4 loopback.' }
+        }
         if ($IsLinux) {
             $ip = (Get-Command ip -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             if ((Invoke-Bounded $ip @('-o','link','show')) -match '(?m)^\d+: (?!lo[: ])') { throw 'Namespace contains nonloopback interface.' }

@@ -161,7 +161,14 @@ jobs:
       - name: Dedicated HTTPS proxy and custom-CA controls on each native platform
         if: ${{ !cancelled() && steps.build_native.outcome == 'success' }}
         timeout-minutes: 5
-        run: pwsh -NoProfile -File scripts/test-tls-proxy-ci.ps1
+        run: |
+          if ($IsWindows) {
+            & pwsh -NoProfile -File scripts/test-tls-proxy-ci.ps1
+          } else {
+            $sudo = (Get-Command sudo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            & $sudo -n --preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID (Join-Path $PSHOME 'pwsh') -NoProfile -File scripts/test-tls-proxy-ci.ps1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain sanitized HTTPS proxy results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
