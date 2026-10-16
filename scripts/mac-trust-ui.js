@@ -1,5 +1,6 @@
 ObjC.import('Foundation');
 ObjC.import('stdlib');
+ObjC.import('ApplicationServices');
 
 let stage = 1;
 function fail(code) {
@@ -44,8 +45,8 @@ function run() {
             typeof input.name !== 'string' || !/^_agensitls[0-9a-f]{16}$/.test(input.name) ||
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
         stage = 2;
+        if (!$.AXIsProcessTrusted()) fail(65);
         const system = Application('System Events');
-        if (!system.UIElementsEnabled()) fail(65);
         stage = 3;
         if (agentWindows(system).length !== 0) fail(65);
         stage = 4;
