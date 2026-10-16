@@ -159,11 +159,11 @@ final class Fixture {
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
         var operationError: Error?
-        let environmentNames: [UnsafeMutablePointer<CChar>?] = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].map { value in
+        let environmentNames: [UnsafeMutablePointer<CChar>] = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].compactMap { value in
             value.withCString { strdup($0) }
         }
         defer { environmentNames.forEach { free($0) } }
-        guard environmentNames.allSatisfy({ $0 != nil }) else {
+        guard environmentNames.count == 3 else {
             _ = AuthorizationFree(authorization, [.destroyRights])
             throw FixtureFailure(stage: "authorization-allocation")
         }
