@@ -97,7 +97,8 @@ The hosted-only native helper creates an owned temporary administrator with a me
 password in an isolated security session. Cached preauthorization is not a supported cleanup route:
 Apple's hardcoded administrative rule has zero credential-cache lifetime. The hosted-only capability
 experiment requests the public graphics-session attribute and uses the runner image's existing
-osascript Accessibility/System Events consent for genuine SecurityAgent authentication. A worker
+osascript Accessibility consent for genuine SecurityAgent authentication through public native AX APIs,
+without System Events AppleEvent dispatch. A worker
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
 containing the unique invocation executable name. It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
