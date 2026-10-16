@@ -84,7 +84,7 @@ extensions and excludes these dedicated TLS cases. Implementation is not a passi
 actual final exact-SHA hosted reports before claiming all-platform parity.
 
 The manual workflow's `native_diagnostics` input defaults to false. When explicitly enabled on the
-reviewed repair branch, it runs only Windows TLS-fixture and macOS signature investigation. Those
+reviewed repair branch, it runs only native TLS-fixture and macOS signature investigation. Those
 partial jobs never publish or establish full acceptance; ordinary validation and release still
 require the complete non-diagnostic workflow.
 
@@ -92,10 +92,12 @@ The wrapper permits temporary fixture trust, name mapping and network restrictio
 GitHub-hosted runners, then removes its owned changes. No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
-protected administrative trust authorization right. No authorization-policy workaround is used;
-headless removal of the final test trust record remains an unresolved native capability requirement.
-Runner disposal is not accepted as proof of explicit cleanup. No workstation authorization policy
-is changed.
+protected administrative trust authorization right. No authorization-policy workaround is used.
+The hosted-only native helper instead creates an owned temporary administrator, keeps its random
+password in memory, and authenticates through Apple's Authorization API in an isolated security
+session for each trust removal. It destroys acquired rights and verifies exact account/membership
+removal, including a controlled failure and journal recovery. Native CI must prove this capability;
+runner disposal is not proof of explicit cleanup. No workstation account or policy is changed.
 
 ## Runtime evidence and limits
 

@@ -139,10 +139,23 @@ function Save-Ledger($Ledger) {
     [IO.File]::WriteAllText($staged, (ConvertTo-Json -Depth 6 $Ledger), $utf8)
     [IO.File]::Move($staged, (Join-Path $state 'ledger.json'), $true)
 }
+function Invoke-MacTrustFixture([string]$Mode, [string[]]$Certificates = @()) {
+    $helper = Assert-OwnedPath (Join-Path $root '.tmp/mac-trust-fixture')
+    if (-not [IO.File]::Exists($helper)) { throw 'Prebuilt native macOS trust fixture is unavailable.' }
+    Write-CiLog INFO "Native trust fixture mode=$Mode started"
+    $null = Invoke-Bounded $helper (@($Mode,$state) + $Certificates)
+    Write-CiLog INFO "Native trust fixture mode=$Mode completed"
+}
 function Remove-CaseState {
     $cleanupStage = 'ledger'
     $ledger = Read-Ledger
     $failed = $false
+    if ($IsMacOS -and @($ledger.roots).Count) {
+        $cleanupStage = 'mac-remove-owned-trust-batch'
+        Write-CiLog INFO "Cleanup stage=$cleanupStage"
+        # The helper owns credentials only in memory and reauthorizes for every certificate.
+        Invoke-MacTrustFixture 'remove' @($ledger.roots | ForEach-Object { Assert-OwnedPath $_.path })
+    }
     foreach ($record in @($ledger.roots)) {
         try {
             if ($IsWindows) {
@@ -157,9 +170,6 @@ function Remove-CaseState {
                 Write-CiLog INFO "Cleanup stage=$cleanupStage"
                 $existing = Invoke-Bounded '/usr/bin/security' @('find-certificate','-a','-Z','/Library/Keychains/System.keychain')
                 if ($existing.Contains($record.fingerprint)) {
-                    $cleanupStage = 'mac-remove-owned-trust'
-                    Write-CiLog INFO "Cleanup stage=$cleanupStage"
-                    $null = Invoke-Bounded '/usr/bin/security' @('remove-trusted-cert','-d',$record.path)
                     $cleanupStage = 'mac-delete-owned-root'
                     Write-CiLog INFO "Cleanup stage=$cleanupStage"
                     $null = Invoke-Bounded '/usr/bin/security' @('delete-certificate','-Z',$record.fingerprint,'/Library/Keychains/System.keychain')
@@ -211,6 +221,8 @@ function Restore-Invocation {
         } catch { $failed = $true }
     }
     try { Remove-CaseState } catch { $failed = $true }
+    # A killed native helper may leave an account journal even when trust cleanup failed.
+    if ($IsMacOS) { try { Invoke-MacTrustFixture 'recover' } catch { $failed = $true } }
     if ($IsLinux -and $record.namespace) {
         try {
             $ip = (Get-Command ip -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -248,6 +260,11 @@ if ($Action -eq 'Run') {
     $state = Join-Path $root ('.tmp/tls-ci-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($state) | Out-Null
     $script:state = $state
+    if ($IsMacOS) {
+        $helper = Assert-OwnedPath (Join-Path $root '.tmp/mac-trust-fixture')
+        Write-CiLog INFO 'Compiling native trust fixture before bounded audit execution.'
+        $null = Invoke-Bounded '/usr/bin/xcrun' @('swiftc','-O','-framework','Security','-framework','OpenDirectory',(Join-Path $PSScriptRoot 'MacTrustFixture.swift'),'-o',$helper) 60
+    }
     try {
         if ($IsWindows) {
             $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165
@@ -284,6 +301,7 @@ try {
         # Write intent before any privileged mutation so the outer owner can recover a killed run.
         [IO.File]::WriteAllText((Join-Path $state 'invocation.json'), (ConvertTo-Json @{ hosts = $hosts; namespace = $(if ($IsLinux) { $namespace } else { $null }); restored = $false }), $utf8)
         try {
+            if ($IsMacOS) { Invoke-MacTrustFixture 'selftest' }
             $text = $utf8.GetString($original)
             if ($text -match '(?m)^\s*[^#\r\n]+\s+(?:mcp\.agensi\.io|auth\.agensi-audit\.test)(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
             [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io auth.agensi-audit.test`n", $utf8)

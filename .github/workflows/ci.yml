@@ -319,6 +319,33 @@ jobs:
         run: |
           & pwsh -NoProfile -File scripts/test-tls-proxy-ci.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build macOS TLS diagnostic executable and fixture
+        if: runner.os == 'macOS'
+        timeout-minutes: 12
+        run: |
+          & $env:CHECK_RUN --wall 600 --idle 120 -- cargo +1.99.0 build --locked --bin agensi-mcp --test audit_blackbox
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item bin -ItemType Directory -Force | Out-Null
+          Copy-Item target/debug/agensi-mcp bin/agensi-mcp
+      - name: Diagnose macOS native trust cleanup
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        run: |
+          $sudo = (Get-Command sudo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+          $ownerId = (& /usr/bin/id -u).Trim()
+          $groupId = (& /usr/bin/id -g).Trim()
+          if ($ownerId -notmatch '^\d+$' -or $groupId -notmatch '^\d+$') { throw 'Invalid invoking runner identity.' }
+          try {
+            & $sudo -n --preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID (Join-Path $PSHOME 'pwsh') -NoProfile -File scripts/test-tls-proxy-ci.ps1
+            $result = $LASTEXITCODE
+          } finally {
+            $report = Join-Path $env:GITHUB_WORKSPACE '.tmp/tls-proxy-results.json'
+            if (Test-Path -LiteralPath $report) {
+              & $sudo -n /usr/sbin/chown -h "${ownerId}:${groupId}" $report
+              if ($LASTEXITCODE -ne 0) { throw 'Sanitized report ownership handoff failed.' }
+            }
+          }
+          exit $result
       - name: Build macOS diagnostic executable
         if: runner.os == 'macOS'
         timeout-minutes: 16
