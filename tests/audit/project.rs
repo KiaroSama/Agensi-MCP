@@ -126,6 +126,15 @@ impl Project {
         })
     }
     fn command(&self) -> Command {
+        #[cfg(target_os = "macos")]
+        let mut command = if self.ci_lease.is_some() {
+            let mut command = Command::new("/usr/bin/sandbox-exec");
+            command.args(["-p", "(version 1)(allow default)(deny network*)(allow network-outbound (remote ip \"localhost:*\"))(allow network-inbound (local ip \"localhost:*\"))(allow network-bind (local ip \"localhost:*\"))(allow network-outbound (remote unix-socket))"]).arg(&self.binary);
+            command
+        } else {
+            Command::new(&self.binary)
+        };
+        #[cfg(not(target_os = "macos"))]
         let mut command = Command::new(&self.binary);
         command
             .env_clear()

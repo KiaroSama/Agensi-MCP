@@ -304,8 +304,15 @@ fn packaging_publishes_only_verified_owned_outputs_and_preserves_existing_files(
         .expect("Original Rustup toolchain location");
     compiler_environment.push(("RUSTUP_HOME".into(), rustup_home.into_os_string()));
     compiler_environment.push(("RUSTUP_TOOLCHAIN".into(), "1.99.0".into()));
+    // Native MSVC discovery needs the installed Visual Studio locator, not GNU link.exe on PATH.
     #[cfg(windows)]
-    for name in ["LIB", "INCLUDE", "LIBPATH"] {
+    for name in [
+        "LIB",
+        "INCLUDE",
+        "LIBPATH",
+        "ProgramFiles(x86)",
+        "ProgramFiles",
+    ] {
         if let Some(value) = std::env::var_os(name) {
             compiler_environment.push((name.into(), value));
         }

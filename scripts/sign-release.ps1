@@ -14,6 +14,8 @@ $certificates = [Security.Cryptography.X509Certificates.X509Certificate2Collecti
 $key = $null
 $temporary = $null
 $keychain = $null
+$priorKeychains = $null
+$restoreSearchList = $false
 $stage = 'input-validation'
 Write-SigningLog INFO 'Signing stage=input-validation.'
 $password = $env:AGENSI_SIGNING_PASSWORD
@@ -66,6 +68,16 @@ try {
         Write-SigningLog INFO 'Signing stage=windows-authenticode-complete.'
     } elseif ($Platform.StartsWith('macos-')) {
         if (-not $IsMacOS) { throw 'macOS signing requires macOS.' }
+        function Get-UserSigningKeychains {
+            $listing = Invoke-SigningProcess /usr/bin/security @('list-keychains','-d','user')
+            foreach ($line in ($listing.Stdout -split '\r?\n')) {
+                if (-not $line.Trim()) { continue }
+                if ($line -notmatch '^\s*"([^"\p{Cc}]+)"\s*$') { throw 'Cannot safely snapshot the user keychain search list.' }
+                $Matches[1]
+            }
+        }
+        $priorKeychains = @(Get-UserSigningKeychains)
+        $restoreSearchList = $true
         $temporary = Protect-SigningDirectory (Join-Path $script:SigningRoot ('.tmp/signature-' + [guid]::NewGuid().ToString('N')))
         $keychain = Join-Path $temporary 'release.keychain-db'
         $pfxFile = Join-Path $temporary 'leaf.pfx'
@@ -83,6 +95,15 @@ try {
         Invoke-KeychainCommand @('unlock-keychain','-p',$keychainPassword,$keychain)
         Invoke-KeychainCommand @('import',$pfxFile,'-k',$keychain,'-P',$password,'-T','/usr/bin/codesign')
         Invoke-KeychainCommand @('set-key-partition-list','-S','apple-tool:,apple:,codesign:','-s','-k',$keychainPassword,$keychain)
+        $stage = 'mac-keychain-search-list'
+        Invoke-SigningProcess /usr/bin/security (@('list-keychains','-d','user','-s') + $priorKeychains + @($keychain)) | Out-Null
+        $currentKeychains = @(Get-UserSigningKeychains)
+        if (($currentKeychains | ConvertTo-Json -Compress) -cne (($priorKeychains + @($keychain)) | ConvertTo-Json -Compress)) { throw 'Owned keychain search-list readback mismatch.' }
+        $identities = Invoke-SigningProcess /usr/bin/security @('find-identity','-p','codesigning',$keychain)
+        $pins = @([regex]::Matches($identities.Stdout, '(?im)^\s*\d+\)\s+([0-9a-f]{40})\s+') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+        $matching = @($pins | Where-Object { $_ -ceq $descriptor.leaf_sha1 }).Count
+        Write-SigningLog INFO ('Signing stage=mac-identity-readback; approved_identity_count=' + $matching + '.')
+        if ($matching -ne 1 -or $pins.Count -ne 1) { throw 'Owned keychain does not expose exactly the approved signing identity.' }
         $stage = 'mac-codesign'
         Write-SigningLog INFO 'Signing stage=mac-codesign.'
         $native = Invoke-SigningProcess /usr/bin/codesign @('--force','--keychain',$keychain,'--sign',$descriptor.leaf_sha1,'--timestamp=none',$Path) -AllowFailure
@@ -120,15 +141,24 @@ try {
     Write-SigningLog ERROR ('Release signing failed; stage={0}; exception={1}; hresult={2}; line={3}; payload omitted.' -f $stage, $_.Exception.GetType().Name, $_.Exception.HResult, $_.InvocationInfo.ScriptLineNumber)
     throw 'Release signing failed; private process diagnostics and key inputs omitted.'
 } finally {
-    if ($key) { $key.Dispose() }
-    foreach ($certificate in $certificates) { $certificate.Dispose() }
     try {
-        if ($keychain -and [IO.File]::Exists($keychain)) { Invoke-SigningProcess /usr/bin/security @('delete-keychain',$keychain) | Out-Null }
-        if ($temporary -and [IO.Directory]::Exists($temporary)) { [IO.Directory]::Delete($temporary, $true) }
+        if ($restoreSearchList) {
+            Invoke-SigningProcess /usr/bin/security (@('list-keychains','-d','user','-s') + $priorKeychains) | Out-Null
+            $restored = @(Get-UserSigningKeychains)
+            if (($restored | ConvertTo-Json -Compress) -cne ($priorKeychains | ConvertTo-Json -Compress)) { throw 'Original keychain search-list restoration failed.' }
+            Write-SigningLog INFO 'Original user keychain search list restored and readback verified.'
+        }
     } finally {
-        $env:AGENSI_SIGNING_PASSWORD = $password
-        $env:AGENSI_SIGNING_PFX_B64 = $encoded
-        $password = $encoded = $pfx = $keychainPassword = $null
-        Close-SigningLog
+        if ($key) { $key.Dispose() }
+        foreach ($certificate in $certificates) { $certificate.Dispose() }
+        try {
+            if ($keychain -and [IO.File]::Exists($keychain)) { Invoke-SigningProcess /usr/bin/security @('delete-keychain',$keychain) | Out-Null }
+            if ($temporary -and [IO.Directory]::Exists($temporary)) { [IO.Directory]::Delete($temporary, $true) }
+        } finally {
+            $env:AGENSI_SIGNING_PASSWORD = $password
+            $env:AGENSI_SIGNING_PFX_B64 = $encoded
+            $password = $encoded = $pfx = $keychainPassword = $null
+            Close-SigningLog
+        }
     }
 }

@@ -140,27 +140,39 @@ function Save-Ledger($Ledger) {
     [IO.File]::Move($staged, (Join-Path $state 'ledger.json'), $true)
 }
 function Remove-CaseState {
+    $cleanupStage = 'ledger'
     $ledger = Read-Ledger
     $failed = $false
     foreach ($record in @($ledger.roots)) {
         try {
             if ($IsWindows) {
-                $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root','CurrentUser')
+                $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine')
                 try {
                     $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
                     foreach ($cert in @($store.Certificates | Where-Object Thumbprint -CEQ $record.fingerprint)) { $store.Remove($cert) }
                     if (@($store.Certificates | Where-Object Thumbprint -CEQ $record.fingerprint).Count) { throw 'Owned root remains.' }
                 } finally { $store.Dispose() }
             } elseif ($IsMacOS) {
+                $cleanupStage = 'mac-find-owned-root'
+                Write-CiLog INFO "Cleanup stage=$cleanupStage"
                 $existing = Invoke-Bounded '/usr/bin/security' @('find-certificate','-a','-Z','/Library/Keychains/System.keychain')
                 if ($existing.Contains($record.fingerprint)) {
+                    $cleanupStage = 'mac-remove-owned-trust'
+                    Write-CiLog INFO "Cleanup stage=$cleanupStage"
                     $null = Invoke-Bounded '/usr/bin/security' @('remove-trusted-cert','-d',$record.path)
+                    $cleanupStage = 'mac-delete-owned-root'
+                    Write-CiLog INFO "Cleanup stage=$cleanupStage"
                     $null = Invoke-Bounded '/usr/bin/security' @('delete-certificate','-Z',$record.fingerprint,'/Library/Keychains/System.keychain')
                 }
+                $cleanupStage = 'mac-verify-root-absent'
+                Write-CiLog INFO "Cleanup stage=$cleanupStage"
                 $remaining = Invoke-Bounded '/usr/bin/security' @('find-certificate','-a','-Z','/Library/Keychains/System.keychain')
                 if ($remaining.Contains($record.fingerprint)) { throw 'Owned Apple root remains.' }
             }
-        } catch { $failed = $true; Write-CiLog ERROR 'Owned CA cleanup failed; no success claimed.' }
+        } catch {
+            $failed = $true
+            Write-CiLog ERROR ('Owned CA cleanup failed stage={0} type={1} line={2}; no success claimed.' -f $cleanupStage, $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber)
+        }
     }
     foreach ($rule in @($ledger.rules)) {
         try {
@@ -285,9 +297,8 @@ try {
                 $null = Invoke-Bounded $ip (@('netns','exec',$namespace,$runner) + $arguments) 130 -Isolated
             } elseif ($IsMacOS) {
                 if (-not [IO.File]::Exists('/usr/bin/sandbox-exec')) { throw 'Required macOS native sandbox is unavailable.' }
-                $profile = Join-Path $state 'loopback.sb'
-                [IO.File]::WriteAllText($profile, '(version 1)(allow default)(deny network*)(allow network-outbound (remote ip "localhost:*"))(allow network-inbound (local ip "localhost:*"))(allow network-bind (local ip "localhost:*"))(allow network-outbound (remote unix-socket))', $utf8)
-                $null = Invoke-Bounded '/usr/bin/sandbox-exec' (@('-f',$profile,$runner) + $arguments) 130 -Isolated
+                # The Rust driver sandboxes every copied CLI child; native trust ownership stays outside.
+                $null = Invoke-Bounded $runner $arguments 130 -Isolated
             } elseif ($IsWindows) {
                 $null = Invoke-Bounded $runner $arguments 130 -Isolated
             } else { throw 'Unsupported native platform.' }
@@ -334,14 +345,17 @@ try {
             $owned = Join-Path $state ($fingerprint + '.pem')
             [IO.File]::WriteAllText($owned, $cert.ExportCertificatePem(), $utf8)
             if ($IsWindows) {
-                $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root','CurrentUser')
+                $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine')
                 try {
+                    Write-CiLog INFO 'Trust stage=windows-machine-root-open'
                     $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
                     if (@($store.Certificates | Where-Object Thumbprint -CEQ $fingerprint).Count) { throw 'Preexisting root collision refused.' }
                     $ledger = Read-Ledger
                     $ledger.roots += @{ fingerprint = $fingerprint; path = $owned }
                     Save-Ledger $ledger
+                    Write-CiLog INFO 'Trust stage=windows-machine-root-import'
                     $store.Add($cert)
+                    Write-CiLog INFO 'Trust stage=windows-machine-root-verify'
                     if (@($store.Certificates | Where-Object Thumbprint -CEQ $fingerprint).Count -ne 1) { throw 'Owned root import not observed.' }
                 } finally { $store.Dispose() }
             } elseif ($IsMacOS) {

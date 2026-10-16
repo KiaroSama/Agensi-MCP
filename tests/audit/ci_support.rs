@@ -70,6 +70,7 @@ async fn invoke(
         owner.is_absolute() && shell.is_absolute() && owner.is_file() && shell.is_file(),
         "Invalid CI fixture owner paths"
     );
+    eprintln!("Native CI fixture action={action} started");
     let mut command = Command::new(shell);
     command
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
@@ -89,7 +90,7 @@ async fn invoke(
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::inherit());
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     let mut child = command.spawn()?;
@@ -105,5 +106,6 @@ async fn invoke(
             anyhow::bail!("Native CI fixture action {action} deadline");
         }
     }
+    eprintln!("Native CI fixture action={action} completed");
     Ok(())
 }
