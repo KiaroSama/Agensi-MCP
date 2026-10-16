@@ -159,7 +159,9 @@ final class Fixture {
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
         var operationError: Error?
-        let environmentNames = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].map { strdup($0) }
+        let environmentNames: [UnsafeMutablePointer<CChar>?] = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].map { value in
+            value.withCString { strdup($0) }
+        }
         defer { environmentNames.forEach { free($0) } }
         guard environmentNames.allSatisfy({ $0 != nil }) else {
             _ = AuthorizationFree(authorization, [.destroyRights])
