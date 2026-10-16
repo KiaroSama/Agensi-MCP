@@ -105,8 +105,10 @@ final class Fixture {
                   try values(record, kODAttributeTypeGUID) == [identity.guid] else {
                 throw FixtureFailure(stage: "account-owner-mismatch")
             }
-            if try admin.isMemberRecord(record) { try admin.removeMemberRecord(record) }
-            guard try !admin.isMemberRecord(record) else { throw FixtureFailure(stage: "membership-remove") }
+            if try values(admin, kODAttributeTypeGroupMembers).contains(identity.guid) ||
+                values(admin, kODAttributeTypeGroupMembership).contains(identity.name) {
+                try admin.removeMemberRecord(record)
+            }
             try record.delete()
         }
         // A killed create/delete may leave only group membership; remove exact journal-owned values.
@@ -145,7 +147,9 @@ final class Fixture {
         try record.changePassword(nil, toPassword: password)
         try record.verifyPassword(password)
         try admin.addMemberRecord(record)
-        guard try admin.isMemberRecord(record), try values(record, kODAttributeTypeUniqueID) == [uid],
+        guard try values(admin, kODAttributeTypeGroupMembers).contains(identity.guid),
+              try values(admin, kODAttributeTypeGroupMembership).contains(identity.name),
+              try values(record, kODAttributeTypeUniqueID) == [uid],
               try values(record, kODAttributeTypeGUID) == [identity.guid] else { throw FixtureFailure(stage: "account-create-readback") }
         event("INFO", "Owned temporary admin created and native password verified; no home created.")
         return identity
@@ -155,6 +159,12 @@ final class Fixture {
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
         var operationError: Error?
+        let environmentNames = [kAuthorizationEnvironmentUsername, kAuthorizationEnvironmentPassword, kAuthorizationEnvironmentShared].map { strdup($0) }
+        defer { environmentNames.forEach { free($0) } }
+        guard environmentNames.allSatisfy({ $0 != nil }) else {
+            _ = AuthorizationFree(authorization, [.destroyRights])
+            throw FixtureFailure(stage: "authorization-allocation")
+        }
         do {
             let status = identity.name.withCString { name in
                 password.withCString { secret in
@@ -163,9 +173,9 @@ final class Fixture {
                         return withUnsafeMutablePointer(to: &item) { itemPointer in
                             var rights = AuthorizationRights(count: 1, items: itemPointer)
                             var environment = [
-                                AuthorizationItem(name: kAuthorizationEnvironmentUsername, valueLength: strlen(name), value: UnsafeMutableRawPointer(mutating: name), flags: 0),
-                                AuthorizationItem(name: kAuthorizationEnvironmentPassword, valueLength: strlen(secret), value: UnsafeMutableRawPointer(mutating: secret), flags: 0),
-                                AuthorizationItem(name: kAuthorizationEnvironmentShared, valueLength: 0, value: nil, flags: 0)
+                                AuthorizationItem(name: UnsafePointer(environmentNames[0]), valueLength: strlen(name), value: UnsafeMutableRawPointer(mutating: name), flags: 0),
+                                AuthorizationItem(name: UnsafePointer(environmentNames[1]), valueLength: strlen(secret), value: UnsafeMutableRawPointer(mutating: secret), flags: 0),
+                                AuthorizationItem(name: UnsafePointer(environmentNames[2]), valueLength: 0, value: nil, flags: 0)
                             ]
                             return environment.withUnsafeMutableBufferPointer { buffer in
                                 var inputs = AuthorizationEnvironment(count: UInt32(buffer.count), items: buffer.baseAddress)
@@ -220,7 +230,7 @@ final class Fixture {
         var bytes = [UInt8](repeating: 0, count: 32)
         try Self.check(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes), "password-random")
         var password = bytes.map { String(format: "%02x", $0) }.joined()
-        defer { bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }; password.removeAll(keepingCapacity: false) }
+        defer { _ = bytes.withUnsafeMutableBytes { $0.initializeMemory(as: UInt8.self, repeating: 0) }; password.removeAll(keepingCapacity: false) }
         var operationError: Error?
         do {
             let identity = try createAccount(password: password)
