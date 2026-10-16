@@ -11,7 +11,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $utf8 = [Text.UTF8Encoding]::new($false, $true)
-$pwsh = (Get-Process -Id $PID).Path
+$ownerScript = $PSCommandPath
+$pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+if (-not [IO.File]::Exists($pwsh)) { throw 'Native PowerShell executable is absent from PSHOME.' }
 $state = if ($StateRoot) { $StateRoot } else { $env:AGENSI_TLS_CI_STATE }
 $log = $null
 function Write-CiLog([string]$Level, [string]$Message) {
@@ -52,6 +54,7 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
     $info.StandardOutputEncoding = $utf8
     $info.StandardErrorEncoding = $utf8
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
+    foreach ($name in @('AGENSI_SIGNING_PFX_B64','AGENSI_SIGNING_PASSWORD')) { $null = $info.Environment.Remove($name) }
     if ($Isolated) {
         $info.Environment.Clear()
         foreach ($name in @('PATH','SYSTEMROOT','WINDIR','GITHUB_ACTIONS','RUNNER_ENVIRONMENT','GITHUB_WORKSPACE','GITHUB_RUN_ID')) {
@@ -61,13 +64,15 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
         foreach ($name in @('HOME','USERPROFILE','APPDATA','LOCALAPPDATA','TEMP','TMP','TMPDIR')) { $info.Environment[$name] = $state }
         $info.Environment['AGENSI_TLS_CI'] = '1'
         $info.Environment['AGENSI_TLS_CI_STATE'] = $state
-        $info.Environment['AGENSI_TLS_CI_SCRIPT'] = $PSCommandPath
+        $info.Environment['AGENSI_TLS_CI_SCRIPT'] = $ownerScript
         $info.Environment['AGENSI_TLS_CI_PWSH'] = $pwsh
     }
     $process.StartInfo = $info
     $processRecord = $null
+    $started = $false
     try {
-        if (-not $process.Start()) { throw 'Fixture helper did not start.' }
+        $started = $process.Start()
+        if (-not $started) { throw 'Fixture helper did not start.' }
         $processRecord = Join-Path $state ('process-' + $process.Id + '.json')
         [IO.File]::WriteAllText($processRecord, (ConvertTo-Json @{ pid = $process.Id; started = $process.StartTime.ToUniversalTime().Ticks }), $utf8)
         $process.StandardInput.Close()
@@ -93,14 +98,24 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
             if ($pending.Count) { $null = [Threading.Tasks.Task]::WaitAny([Threading.Tasks.Task[]]$pending, 50) }
             else { $null = $process.WaitForExit(50) }
         }
-        if ($process.ExitCode -ne 0) { throw ('Fixture helper failed: ' + [IO.Path]::GetFileName($Program) + ' exit=' + $process.ExitCode) }
+        if ($process.ExitCode -ne 0) {
+            $diagnostic = Join-Path $state ('helper-' + $process.Id + '.diagnostic.txt')
+            # Only this synthetic fixture stage uses this owner; signing secrets are removed below.
+            $failure = $texts[1].ToString()
+            [IO.File]::WriteAllText($diagnostic, $failure, $utf8)
+            [Console]::Error.Write($failure)
+            throw ('Fixture helper failed: ' + [IO.Path]::GetFileName($Program) + ' exit=' + $process.ExitCode)
+        }
         if ($Seconds -gt 30) {
             [Console]::Out.Write($texts[0].ToString())
             [Console]::Error.Write($texts[1].ToString())
         }
         return $texts[0].ToString().Trim()
     } finally {
-        if ($process.Id -and -not $process.HasExited) { $process.Kill($true); $null = $process.WaitForExit(3000) }
+        if ($started -and -not $process.HasExited) {
+            $process.Kill($true)
+            if (-not $process.WaitForExit(3000)) { throw 'Fixture helper tree cleanup deadline.' }
+        }
         $process.Dispose()
         if ($processRecord -and [IO.File]::Exists($processRecord)) { [IO.File]::Delete($processRecord) }
     }
@@ -169,7 +184,7 @@ function Restore-Invocation {
     try { Remove-CaseState } catch { $failed = $true }
     if ($IsLinux -and $record.namespace) {
         try {
-            $ip = (Get-Command ip -CommandType Application -ErrorAction Stop).Source
+            $ip = (Get-Command ip -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             $names = Invoke-Bounded $ip @('netns','list')
             if ($names -match ('(?m)^' + [regex]::Escape($record.namespace) + '(?:\s|$)')) {
                 $pids = Invoke-Bounded $ip @('netns','pids',$record.namespace)
@@ -195,6 +210,10 @@ function Restore-Invocation {
     [IO.File]::WriteAllText($journal, (ConvertTo-Json $record), $utf8)
     Write-CiLog INFO 'Native fixture trust, network and hostname state restored.'
 }
+trap {
+    [Console]::Error.WriteLine(('TLS bootstrap failed type={0} line={1} action={2} id={3}; values omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber, $Action, (($_.FullyQualifiedErrorId -split ',')[0] -replace '[^A-Za-z0-9_.-]', '_')))
+    exit 1
+}
 Assert-Hosted
 if ($Action -eq 'Run') {
     $state = Join-Path $root ('.tmp/tls-ci-' + [Guid]::NewGuid().ToString('N'))
@@ -202,17 +221,17 @@ if ($Action -eq 'Run') {
     $script:state = $state
     try {
         if ($IsWindows) {
-            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-Action','Execute','-StateRoot',$state) 165
+            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165
         } else {
-            $sudo = (Get-Command sudo -CommandType Application -ErrorAction Stop).Source
-            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-Action','Execute','-StateRoot',$state) 165
+            $sudo = (Get-Command sudo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165
         }
     } finally {
         # A killed inner owner cannot run finally; the surviving outer owner replays its journal.
         if ($IsWindows) {
-            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-Action','Recover','-StateRoot',$state) 35
+            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35
         } else {
-            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-Action','Recover','-StateRoot',$state) 35
+            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35
         }
         Write-CiLog INFO 'Disposable native fixture owner exited with recovery checked.'
     }
@@ -241,7 +260,7 @@ try {
             [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io`n", $utf8)
             $env:AGENSI_TLS_CI = '1'
             $env:AGENSI_TLS_CI_STATE = $state
-            $env:AGENSI_TLS_CI_SCRIPT = $PSCommandPath
+            $env:AGENSI_TLS_CI_SCRIPT = $ownerScript
             $env:AGENSI_TLS_CI_PWSH = $pwsh
             Save-Ledger @{ roots = @(); rules = @() }
             $suffix = if ($IsWindows) { '.exe' } else { '' }
@@ -251,7 +270,7 @@ try {
             if ($targets.Count -ne 1) { throw 'Expected exactly one prebuilt native audit harness.' }
             $arguments = @('--wall','120','--idle','20','--',$targets[0].FullName,'--source-root',$root,'--phase=tls-proxy','--output',(Join-Path $root '.tmp/tls-proxy-results.json'))
             if ($IsLinux) {
-                $ip = (Get-Command ip -CommandType Application -ErrorAction Stop).Source
+                $ip = (Get-Command ip -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
                 $null = Invoke-Bounded $ip @('netns','add',$namespace)
                 $null = Invoke-Bounded $ip @('-n',$namespace,'link','set','lo','up')
                 $null = Invoke-Bounded $ip (@('netns','exec',$namespace,$runner) + $arguments) 130 -Isolated
@@ -273,7 +292,7 @@ try {
         $addresses = @($lookup.Result)
         if (-not $addresses.Count -or @($addresses | Where-Object { $_.ToString() -ne '127.0.0.1' }).Count) { throw 'Observer hostname escaped IPv4 loopback.' }
         if ($IsLinux) {
-            $ip = (Get-Command ip -CommandType Application -ErrorAction Stop).Source
+            $ip = (Get-Command ip -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             if ((Invoke-Bounded $ip @('-o','link','show')) -match '(?m)^\d+: (?!lo[: ])') { throw 'Namespace contains nonloopback interface.' }
         }
     } elseif ($Action -eq 'RemoveCase') { Remove-CaseState }
@@ -330,6 +349,6 @@ try {
     }
     Write-CiLog INFO "Completed action=$Action"
 } catch {
-    Write-CiLog ERROR ('Native fixture action failed: ' + $_.Exception.GetType().Name + '; payload omitted.')
+    Write-CiLog ERROR ('Native fixture action failed type={0} line={1} action={2} id={3}; payload omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber, $Action, (($_.FullyQualifiedErrorId -split ',')[0] -replace '[^A-Za-z0-9_.-]', '_'))
     exit 1
 } finally { if ($log) { $log.Dispose() } }

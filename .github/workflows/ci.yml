@@ -137,6 +137,7 @@ jobs:
           & $env:CHECK_RUN --wall 90 --idle 20 -- pwsh -NoProfile -File scripts/test-registration-storage.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native parity, protocol, proxies, OAuth, TLS and entry tests
+        id: native_tests
         run: |
           New-Item .tmp -ItemType Directory -Force | Out-Null
           $names = @('management','network','auth','tls','protocol','oauth_flow','entry','socks4_userid','local_http','settings','diagnostics','cleanup','audit_regressions','check_release','operator')
@@ -167,6 +168,8 @@ jobs:
           path: |
             .tmp/tls-proxy-results.json
             .tmp/tls-ci-*/cleanup.json
+            .tmp/tls-ci-*/*.log
+            .tmp/tls-ci-*/*.diagnostic.txt
           if-no-files-found: warn
           retention-days: 14
       - name: Retain sanitized black-box results
@@ -183,10 +186,12 @@ jobs:
         if: always() && steps.formatting.outcome != 'success'
         run: exit 1
       - name: Build optimized downloadable executable
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        id: optimized_build
+        if: ${{ !cancelled() && steps.native_tests.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
         run: '& $env:CHECK_RUN --wall 900 --idle 180 -- cargo +1.99.0 build --locked --release --bin agensi-mcp'
       - name: Native-sign and verify final executable
-        if: inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama'
+        id: signing
+        if: ${{ !cancelled() && steps.native_tests.outcome == 'success' && steps.optimized_build.outcome == 'success' && inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama' }}
         env:
           AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
           AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
@@ -198,13 +203,14 @@ jobs:
           & $env:CHECK_RUN --wall 120 --idle 30 -- pwsh -NoProfile -File scripts/test-signing.ps1 -Path "target/release/$name" -Platform '${{ matrix.platform }}' -SourceCommit $env:GITHUB_SHA -Version $version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package and verify private-signed extracted download
-        if: inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama'
+        id: package
+        if: ${{ !cancelled() && steps.native_tests.outcome == 'success' && steps.signing.outcome == 'success' && inputs.release_tag != '' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/private-signed-release') && github.repository == 'KiaroSama/Agensi-MCP' && github.actor == 'KiaroSama' }}
         env:
           AGENSI_SIGNING_PFX_B64: ${{ secrets.AGENSI_SIGNING_PFX_B64 }}
           AGENSI_SIGNING_PASSWORD: ${{ secrets.AGENSI_SIGNING_PASSWORD }}
         run: '& $env:CHECK_RUN --wall 180 --idle 45 -- pwsh -NoProfile -File scripts/package-release.ps1 -Platform ''${{ matrix.platform }}'''
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        if: ${{ !cancelled() && steps.package.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
         with:
           name: agensi-mcp-${{ matrix.platform }}
           path: |
