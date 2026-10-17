@@ -161,6 +161,8 @@ function run() {
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
         stage = 2;
         if (!$.AXIsProcessTrusted()) fail(65);
+        ObjC.bindFunction('CGPreflightPostEventAccess', ['bool', []]);
+        if (!$.CGPreflightPostEventAccess()) fail(84);
         stage = 3;
         if (agentWindows().length !== 0) fail(65);
         stage = 4;

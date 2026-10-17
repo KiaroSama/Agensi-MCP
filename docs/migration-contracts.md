@@ -103,7 +103,8 @@ synthetic session or treat that attribute as proof of an accessible prompt. Reco
 graphics. Cached preauthorization is not a supported cleanup route: Apple's hardcoded administrative
 rule has zero credential-cache lifetime. The hosted-only capability experiment uses the runner image's existing
 osascript Accessibility consent for genuine SecurityAgent authentication through public native AX APIs,
-without System Events AppleEvent dispatch. A worker
+without System Events AppleEvent dispatch. The same worker separately checks existing event-synthesis
+access through the read-only preflight API; it never requests or grants that access. A worker
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
 containing the unique invocation executable name. Password input uses one private-state physical
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
