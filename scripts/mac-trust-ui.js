@@ -146,6 +146,7 @@ function enterPassword(window, secure, nonce, input, deadline) {
                 Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
         }
     }
+    return source;
 }
 function run() {
     try {
@@ -186,11 +187,24 @@ function run() {
             if (controls && approve) {
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
-                enterPassword(controls.window, controls.passwords[0], controls.nonces[0], input, deadline);
+                const source = enterPassword(controls.window, controls.passwords[0], controls.nonces[0], input, deadline);
                 input.password = '';
+                const down = $.CGEventCreateKeyboardEvent(source, 0x24, true);
+                const up = $.CGEventCreateKeyboardEvent(source, 0x24, false);
+                if (!down || !up) fail(76);
+                $.CGEventSetFlags(down, 0);
+                $.CGEventSetFlags(up, 0);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(78);
                 if (!focused(controls.window, controls.passwords[0], controls.nonces[0], input.marker, deadline)) fail(76);
-                if (Number($.AXUIElementPerformAction(approve[0], $('AXPress'))) !== 0) fail(68);
+                let submitted = false;
+                try {
+                    $.CGEventPostToPid(agentPID, down);
+                    submitted = true;
+                } finally {
+                    // Submission can dismiss the prompt; release only to the original live process.
+                    if (submitted && agentApplication && !agentApplication.terminated &&
+                        Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
+                }
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();
                     if (remaining.length === 0) {

@@ -109,7 +109,9 @@ containing the unique invocation executable name. Password input uses one privat
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
 and keyboard-layout identifiers must remain US; the worker never switches layouts. Before each event
 it checks the exact window, secure-field focus and retained nonce element. No password value is read
-back and no global keyboard or clipboard route is used.
+back and no global keyboard or clipboard route is used. A single targeted Return pair submits through
+the same event channel; its neutral key-up targets only the original live process even if submission
+closes the prompt. There is no accessibility-press fallback or repeated submission.
 Input delivery or a closed window is not proof of authorization; the native result is still required.
 It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
