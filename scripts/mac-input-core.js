@@ -129,6 +129,19 @@ function focused(window, secure, nonce, marker, deadline) {
 function enterPassword(window, secure, nonce, input, deadline) {
     ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
     if (!usKeyboard()) fail(83);
+    while (true) {
+        if (Date.now() >= deadline) fail(91);
+        if (!usKeyboard()) fail(83);
+        const windows = agentWindows();
+        if (windows.length !== 1 || !$.CFEqual(windows[0], window)) fail(65);
+        if (text(nonce, 'AXValue').indexOf(input.marker) === -1) fail(67);
+        const app = $.AXUIElementCreateApplication(agentPID);
+        if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+        if (ObjC.unwrap(attribute(app, 'AXFrontmost')) === true &&
+            $.CFEqual(attribute(app, 'AXFocusedWindow'), window)) break;
+        delay(0.01);
+    }
+    if (Date.now() >= deadline) fail(91);
     if (Number($.AXUIElementSetAttributeValue(secure, $('AXFocused'), $.kCFBooleanTrue)) !== 0) fail(76);
     while (!focused(window, secure, nonce, input.marker, deadline)) {
         if (Date.now() >= deadline) fail(76);
