@@ -89,7 +89,10 @@ partial jobs never publish or establish full acceptance; ordinary validation and
 require the complete non-diagnostic workflow.
 
 The wrapper permits temporary fixture trust, name mapping and network restrictions only on disposable
-GitHub-hosted runners, then removes its owned changes. No workstation trust/network settings or real
+GitHub-hosted runners, then removes its owned changes. Windows verifies all firewall profiles are
+enabled once before the isolated audit; each copied CLI still requires its own effective rule,
+program and address readbacks. No profile is enabled or changed by this prerequisite.
+No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
 protected administrative trust authorization right. No authorization-policy workaround is used.

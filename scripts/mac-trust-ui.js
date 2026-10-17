@@ -154,6 +154,17 @@ function run() {
                 input.password = '';
                 if (!focused(controls.window, controls.passwords[0], input.marker, deadline)) fail(76);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(78);
+                while (true) {
+                    const countValue = attribute(controls.passwords[0], 'AXNumberOfCharacters', true);
+                    if (countValue === null || Number($.CFGetTypeID(countValue)) !== Number($.CFNumberGetTypeID())) fail(81);
+                    const count = Number(ObjC.unwrap(countValue));
+                    if (!Number.isInteger(count) || count < 0 || count > 4096) fail(81);
+                    if (count === 64) break;
+                    if (Date.now() >= deadline) fail(82);
+                    if (!focused(controls.window, controls.passwords[0], input.marker, deadline)) fail(76);
+                    delay(0.01);
+                }
+                if (!focused(controls.window, controls.passwords[0], input.marker, deadline)) fail(76);
                 if (Number($.AXUIElementPerformAction(approve[0], $('AXPress'))) !== 0) fail(68);
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();

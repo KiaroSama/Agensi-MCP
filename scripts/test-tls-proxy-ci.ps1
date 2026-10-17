@@ -317,6 +317,10 @@ try {
         # Write intent before any privileged mutation so the outer owner can recover a killed run.
         [IO.File]::WriteAllText((Join-Path $state 'invocation.json'), (ConvertTo-Json @{ hosts = $hosts; namespace = $(if ($IsLinux) { $namespace } else { $null }); restored = $false }), $utf8)
         try {
+            if ($IsWindows) {
+                Write-CiLog INFO 'Preflight stage=windows-firewall-profiles'
+                if (@(Get-NetFirewallProfile | Where-Object Enabled -NE 'True').Count) { throw 'Native firewall profiles must already be enabled.' }
+            }
             if ($IsMacOS) { Invoke-MacTrustFixture 'selftest' }
             $text = $utf8.GetString($original)
             if ($text -match '(?m)^\s*[^#\r\n]+\s+(?:mcp\.agensi\.io|auth\.agensi-audit\.test)(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
@@ -369,8 +373,6 @@ try {
             $ledger = Read-Ledger
             $ledger.rules += $name
             Save-Ledger $ledger
-            Write-CiLog INFO 'Protect stage=windows-firewall-profiles'
-            if (@(Get-NetFirewallProfile | Where-Object Enabled -NE 'True').Count) { throw 'Native firewall profiles must already be enabled.' }
             $ranges = @('0.0.0.0-126.255.255.255','128.0.0.0-255.255.255.255','::','::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
             Write-CiLog INFO 'Protect stage=windows-firewall-create'
             New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Action Block -Program $Binary -RemoteAddress $ranges -Profile Any -Enabled True | Out-Null
