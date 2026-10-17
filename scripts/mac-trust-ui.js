@@ -5,7 +5,10 @@ ObjC.import('AppKit');
 
 let stage = 1;
 let agentPID = null;
+let agentApplication = null;
+let pairedInput = false;
 function fail(code) {
+    if (pairedInput) throw { errorNumber: code };
     $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.exit(code > 0 && code < 128 ? code : 70);
 }
@@ -37,13 +40,15 @@ function agentWindows() {
     const pid = Number(agents.objectAtIndex(0).processIdentifier);
     if (agentPID !== null && agentPID !== pid) fail(65);
     agentPID = pid;
+    if (agentApplication === null) agentApplication = agents.objectAtIndex(0);
+    if (agentApplication.terminated) fail(65);
     const app = $.AXUIElementCreateApplication(pid);
     if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
     return children(app, 'AXWindows');
 }
 function inspect(window) {
     const pending = [{ element: window, depth: 0 }];
-    const result = { text: [], users: [], passwords: [], buttons: [] };
+    const result = { window, text: [], users: [], passwords: [], buttons: [] };
     let count = 0;
     while (pending.length) {
         const entry = pending.pop();
@@ -59,6 +64,52 @@ function inspect(window) {
         for (const child of children(element, 'AXChildren')) pending.push({ element: child, depth: entry.depth + 1 });
     }
     return result;
+}
+function focused(window, secure, marker, deadline) {
+    if (Date.now() >= deadline) return false;
+    const windows = agentWindows();
+    if (windows.length !== 1 || !$.CFEqual(windows[0], window)) return false;
+    if (!inspect(window).text.some(value => value.indexOf(marker) !== -1)) return false;
+    const app = $.AXUIElementCreateApplication(agentPID);
+    if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+    return Boolean($.CFEqual(attribute(app, 'AXFocusedWindow'), window)) &&
+        Boolean($.CFEqual(attribute(app, 'AXFocusedUIElement'), secure));
+}
+function enterPassword(window, secure, input, deadline) {
+    ObjC.bindFunction('CGEventKeyboardSetUnicodeString', ['void', ['void *', 'unsigned long', 'void *']]);
+    ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
+    if (Number($.AXUIElementSetAttributeValue(secure, $('AXFocused'), $.kCFBooleanTrue)) !== 0) fail(76);
+    while (!focused(window, secure, input.marker, deadline)) {
+        if (Date.now() >= deadline) fail(76);
+        delay(0.01);
+    }
+    const source = $.CGEventSourceCreate(-1);
+    if (!source) fail(76);
+    for (let index = 0; index < input.password.length; index += 8) {
+        const down = $.CGEventCreateKeyboardEvent(source, 0, true);
+        const up = $.CGEventCreateKeyboardEvent(source, 0, false);
+        if (!down || !up) fail(76);
+        $.CGEventSetFlags(down, 0);
+        $.CGEventSetFlags(up, 0);
+        const chunk = input.password.slice(index, index + 8);
+        const bytes = $(chunk).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);
+        $.CGEventKeyboardSetUnicodeString(down, chunk.length, bytes.bytes);
+        let sent = false;
+        let released = false;
+        pairedInput = true;
+        try {
+            if (!focused(window, secure, input.marker, deadline)) fail(76);
+            $.CGEventPostToPid(agentPID, down);
+            sent = true;
+            if (!focused(window, secure, input.marker, deadline)) fail(77);
+            $.CGEventPostToPid(agentPID, up);
+            released = true;
+        } finally {
+            pairedInput = false;
+            if (sent && !released && agentApplication && !agentApplication.terminated &&
+                Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
+        }
+    }
 }
 function run() {
     try {
@@ -99,8 +150,9 @@ function run() {
             if (controls && approve) {
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
-                if (Number($.AXUIElementSetAttributeValue(controls.passwords[0], $('AXValue'), $(input.password))) !== 0) fail(68);
+                enterPassword(controls.window, controls.passwords[0], input, deadline);
                 input.password = '';
+                if (!focused(controls.window, controls.passwords[0], input.marker, deadline)) fail(76);
                 if (Number($.AXUIElementPerformAction(approve[0], $('AXPress'))) !== 0) fail(68);
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();

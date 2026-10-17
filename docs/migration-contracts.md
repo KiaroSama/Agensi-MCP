@@ -102,7 +102,11 @@ rule has zero credential-cache lifetime. The hosted-only capability experiment u
 osascript Accessibility consent for genuine SecurityAgent authentication through public native AX APIs,
 without System Events AppleEvent dispatch. A worker
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
-containing the unique invocation executable name. It never grants permissions, changes TCC or
+containing the unique invocation executable name. Password input uses private-state Unicode events
+sent only to that SecurityAgent process, checking the exact window and secure-field focus before
+each event; no password value is read back and no global keyboard or clipboard route is used.
+Input delivery or a closed window is not proof of authorization; the native result is still required.
+It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
 fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact
 account/membership removal is checked, including error recovery. These owned-reference/account checks

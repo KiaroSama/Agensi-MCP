@@ -224,9 +224,15 @@ function Restore-Invocation {
                 if (-not $process.WaitForExit(3000)) { throw 'Owned helper survived recovery.' }
             }
             [IO.File]::Delete($file.FullName)
-        } catch { $failed = $true }
+        } catch {
+            $failed = $true
+            Write-CiLog ERROR ('Recovery stage=process-records type={0} line={1}; values omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber)
+        }
     }
-    try { Remove-CaseState } catch { $failed = $true }
+    try { Remove-CaseState } catch {
+        $failed = $true
+        Write-CiLog ERROR ('Recovery stage=case-state type={0} line={1}; values omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber)
+    }
     # A killed native helper may leave an account journal even when trust cleanup failed.
     if ($IsMacOS) { try { Invoke-MacTrustFixture 'recover' } catch { $failed = $true } }
     if ($IsLinux -and $record.namespace) {
@@ -250,7 +256,10 @@ function Restore-Invocation {
         $original = [IO.File]::ReadAllBytes((Join-Path $state 'hosts.original'))
         [IO.File]::WriteAllBytes($expected, $original)
         if (-not [Linq.Enumerable]::SequenceEqual[byte]($original,[IO.File]::ReadAllBytes($expected))) { throw 'Hosts restoration differs.' }
-    } catch { $failed = $true }
+    } catch {
+        $failed = $true
+        Write-CiLog ERROR ('Recovery stage=hosts type={0} line={1}; values omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber)
+    }
     [IO.File]::WriteAllText((Join-Path $state 'cleanup.json'), (ConvertTo-Json @{ restored = -not $failed; temporary_native_state = $true }), $utf8)
     if ($failed) { throw 'CI fixture recovery incomplete.' }
     $record.restored = $true
