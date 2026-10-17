@@ -5,6 +5,23 @@ import OpenDirectory
 import Security
 
 struct FixtureFailure: Error { let stage: String }
+func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String) {
+    guard data.count < 64, let text = String(data: data, encoding: .utf8),
+          text.isEmpty || text.hasSuffix("\n") else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3})$",
+        options: .regularExpression) != nil }) else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    let diagnostics = lines.filter { $0.hasPrefix("D") }
+    guard diagnostics.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    if let frame = diagnostics.first {
+        let parts = frame.dropFirst().split(separator: ":")
+        guard let snapshot = Int(parts[1]), snapshot <= 511 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    }
+    return (lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none",
+        lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none",
+        diagnostics.first.map(String.init) ?? "none")
+}
+
 struct AccountIdentity: Codable {
     let name: String
     let uid: String
@@ -292,14 +309,8 @@ final class Fixture {
             if killed { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
             let tail = try? output.fileHandleForReading.read(upToCount: 64)
             var diagnostic = "invalid"
-            if let tail, tail.count < 64, let frames = String(data: tail, encoding: .utf8),
-               frames.isEmpty || frames.hasSuffix("\n") {
-                let lines = frames.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-                if lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7})$", options: .regularExpression) != nil }) {
-                    let boundary = lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none"
-                    let code = lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none"
-                    diagnostic = "boundary=" + boundary + " worker=" + code
-                }
+            if let tail, let frames = try? promptFrames(tail) {
+                diagnostic = "boundary=" + frames.boundary + " worker=" + frames.code + " focus=" + frames.focus
             }
             self.event("ERROR", "Native prompt deadline " + diagnostic +
                 " reason=" + String(worker.terminationReason.rawValue) +
@@ -352,6 +363,8 @@ final class Fixture {
         }
         worker.waitUntilExit()
         event("INFO", "Owned prompt worker reaped.")
+        let frames = try promptFrames(try output.fileHandleForReading.read(upToCount: 64) ?? Data())
+        if frames.focus != "none" { event("INFO", "Owned focus diagnostic=" + frames.focus) }
         guard worker.terminationStatus == 0 else {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }

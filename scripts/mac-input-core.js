@@ -13,9 +13,13 @@ let agentPID = null;
 let agentApplication = null;
 let pairedInput = false;
 let focusFailure = 0;
+let focusSeen = 0;
+let focusSnapshot = 0;
 function fail(code) {
     if ((code === 76 || code === 77) && focusFailure) code = focusFailure;
     if (pairedInput) throw { errorNumber: code };
+    if (focusSeen) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+        $('D' + focusSeen + ':' + focusSnapshot + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.exit(code > 0 && code < 128 ? code : 70);
 }
@@ -160,6 +164,31 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
     while (!focused(window, secure, nonce, input.marker, deadline)) {
+        if (focusFailure === 87) focusSeen |= 1;
+        if (focusFailure === 89) focusSeen |= 2;
+        if (focusFailure === 90) {
+            focusSeen |= 4;
+            try {
+                const app = $.AXUIElementCreateApplication(agentPID);
+                if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+                const element = attribute(app, 'AXFocusedUIElement');
+                if (!$.CFEqual(element, username)) {
+                    const role = text(element, 'AXRole');
+                    const subrole = text(element, 'AXSubrole', true);
+                    const owner = attribute(element, 'AXWindow', true);
+                    focusSnapshot = 1 |
+                        ($.CFEqual(attribute(app, 'AXFocusedWindow'), window) ? 2 : 0) |
+                        ($.CFEqual(element, secure) ? 4 : 0) |
+                        (role === 'AXTextField' ? 8 : 0) |
+                        (role === 'AXTextArea' ? 16 : 0) |
+                        (subrole === 'AXSecureTextField' ? 32 : 0) |
+                        (owner && $.CFEqual(owner, window) ? 64 : 0) |
+                        (owner ? 128 : 0) | (subrole ? 256 : 0);
+                }
+            } catch (error) {
+                if (!error.snapshotPending) throw error;
+            }
+        }
         if (Date.now() >= deadline) fail(76);
         delay(0.01);
     }
