@@ -47,8 +47,21 @@ final class InputFixture: NSObject {
         window?.close()
     }
 
+    private func focusState(_ phase: String, report: (String) -> Void) {
+        report("Owned input focus phase=" + phase +
+            " app_active=" + String(NSApplication.shared.isActive) +
+            " window_key=" + String(window?.isKeyWindow ?? false) +
+            " window_main=" + String(window?.isMainWindow ?? false) +
+            " can_become_key=" + String(window?.canBecomeKey ?? false) +
+            " username_accepts_first_responder=" + String(username.acceptsFirstResponder) +
+            " secure_accepts_first_responder=" + String(secure.acceptsFirstResponder) +
+            " username_editor_present=" + String(username.currentEditor() != nil) +
+            " secure_editor_present=" + String(secure.currentEditor() != nil))
+    }
+
     func run(marker: String, report: (String) -> Void) throws {
         defer {
+            focusState("final", report: report)
             let editor = secure.currentEditor()
             let received = editor?.string ?? secure.stringValue
             let length = received.count
@@ -90,6 +103,7 @@ final class InputFixture: NSObject {
         ownedWindow.makeKeyAndOrderFront(nil)
         application.activate(ignoringOtherApps: true)
         guard ownedWindow.makeFirstResponder(username) else { throw FixtureFailure(stage: "input-fixture-focus") }
+        focusState("initial", report: report)
         let deadline = Date().addingTimeInterval(4)
         while !submitted && Date() < deadline {
             let until = min(deadline, Date().addingTimeInterval(0.01))
