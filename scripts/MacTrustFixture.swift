@@ -220,7 +220,9 @@ final class Fixture {
         event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
         var operationError: Error?
         do { try operation() } catch { operationError = error }
+        event("INFO", "Native operation returned; awaiting owned worker exit.")
         worker.waitUntilExit()
+        event("INFO", "Owned prompt worker reaped.")
         guard worker.terminationStatus == 0 else {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
@@ -232,6 +234,7 @@ final class Fixture {
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
         let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
+        event("INFO", "Native authorization request starting.")
         let status = marker.withCString { prompt in
             "prompt".withCString { promptName in
                 "com.apple.trust-settings.admin".withCString { right in
@@ -247,7 +250,10 @@ final class Fixture {
                 }
             }
         }
+        event("INFO", "Native authorization request returned.")
+        event("INFO", "Owned authorization destruction starting.")
         let cleanup = AuthorizationFree(authorization, [.destroyRights])
+        event("INFO", "Owned authorization destruction returned.")
         try Self.check(cleanup, "authorization-destroy")
         try Self.check(status, "authorization-native-prompt")
     }
