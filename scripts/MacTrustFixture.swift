@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import OpenDirectory
@@ -8,6 +9,92 @@ struct AccountIdentity: Codable {
     let name: String
     let uid: String
     let guid: String
+}
+
+final class InputFixture: NSObject {
+    private let username = NSTextField(frame: NSRect(x: 24, y: 112, width: 472, height: 24))
+    private let secure = NSSecureTextField(frame: NSRect(x: 24, y: 72, width: 472, height: 24))
+    private let expectedName: String
+    private let expectedPassword: String
+    private var window: NSWindow?
+    private var submitted = false
+    private var usernameMatch = false
+    private var passwordMatch = false
+    private var wrongControlRejected = false
+
+    init(name: String, password: String) {
+        expectedName = name
+        expectedPassword = password
+        super.init()
+    }
+
+    func prepare() throws {
+        guard Thread.isMainThread else { throw FixtureFailure(stage: "input-fixture-main-thread") }
+        let application = NSApplication.shared
+        guard application.setActivationPolicy(.regular) else { throw FixtureFailure(stage: "input-fixture-activation") }
+        application.finishLaunching()
+        guard application.windows.isEmpty else { throw FixtureFailure(stage: "input-fixture-window-baseline") }
+    }
+
+    @objc private func submit(_ sender: Any?) {
+        guard !submitted else { return }
+        username.validateEditing()
+        secure.validateEditing()
+        usernameMatch = username.stringValue == expectedName
+        passwordMatch = secure.stringValue == expectedPassword
+        wrongControlRejected = secure.stringValue != String(repeating: "f", count: 64)
+        submitted = true
+        window?.close()
+    }
+
+    func run(marker: String, report: (String) -> Void) throws {
+        defer {
+            window?.close()
+            window = nil
+            username.stringValue = ""
+            secure.stringValue = ""
+            report("Owned input fixture submitted=" + String(submitted) +
+                " username_match=" + String(usernameMatch) + " password_match=" + String(passwordMatch) +
+                " wrong_control_rejected=" + String(wrongControlRejected))
+        }
+        guard Thread.isMainThread else { throw FixtureFailure(stage: "input-fixture-main-thread") }
+        let application = NSApplication.shared
+        let ownedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 210),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window = ownedWindow
+        ownedWindow.isReleasedWhenClosed = false
+        ownedWindow.title = marker
+        guard let content = ownedWindow.contentView else { throw FixtureFailure(stage: "input-fixture-content") }
+        let label = NSTextField(labelWithString: marker)
+        label.frame = NSRect(x: 24, y: 158, width: 472, height: 28)
+        let button = NSButton(title: "OK", target: self, action: #selector(submit(_:)))
+        button.frame = NSRect(x: 408, y: 24, width: 88, height: 28)
+        button.keyEquivalent = "\r"
+        content.addSubview(label)
+        content.addSubview(username)
+        content.addSubview(secure)
+        content.addSubview(button)
+        username.nextKeyView = secure
+        secure.nextKeyView = button
+        ownedWindow.initialFirstResponder = username
+        ownedWindow.defaultButtonCell = button.cell as? NSButtonCell
+        ownedWindow.center()
+        ownedWindow.makeKeyAndOrderFront(nil)
+        application.activate(ignoringOtherApps: true)
+        guard ownedWindow.makeFirstResponder(username) else { throw FixtureFailure(stage: "input-fixture-focus") }
+        let deadline = Date().addingTimeInterval(4)
+        while !submitted && Date() < deadline {
+            let until = min(deadline, Date().addingTimeInterval(0.01))
+            if let event = application.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) {
+                application.sendEvent(event)
+            }
+            application.updateWindows()
+        }
+        guard submitted else { throw FixtureFailure(stage: "input-fixture-submission-timeout") }
+        guard usernameMatch && passwordMatch && wrongControlRejected else {
+            throw FixtureFailure(stage: "input-fixture-value-mismatch")
+        }
+    }
 }
 
 final class Fixture {
@@ -159,12 +246,12 @@ final class Fixture {
             throw FixtureFailure(stage: stage + ":" + String((error as NSError).code))
         }
     }
-    func withPrompt(_ identity: AccountIdentity, password: String, operation: () throws -> Void) throws {
+    func withPrompt(_ identity: AccountIdentity, password: String, inputFixture: Bool = false, operation: () throws -> Void) throws {
         let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
         guard marker.hasPrefix("mac-trust-"), marker.count == 42,
               marker.dropFirst(10).allSatisfy({ $0.isHexDigit }) else { throw FixtureFailure(stage: "prompt-marker") }
         let script = state.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("scripts/mac-trust-ui.js")
+            .appendingPathComponent(inputFixture ? "scripts/mac-input-fixture.js" : "scripts/mac-trust-ui.js")
         guard script.resolvingSymlinksInPath() == script else { throw FixtureFailure(stage: "prompt-script") }
         let worker = Process()
         let input = Pipe()
@@ -204,7 +291,9 @@ final class Fixture {
             try? input.fileHandleForWriting.close()
             try? output.fileHandleForReading.close()
         }
-        let payload = try JSONSerialization.data(withJSONObject: ["marker": marker, "name": identity.name, "password": password])
+        var values: [String: Any] = ["marker": marker, "name": identity.name, "password": password]
+        if inputFixture { values["fixturePID"] = Int(getpid()) }
+        let payload = try JSONSerialization.data(withJSONObject: values)
         try input.fileHandleForWriting.write(contentsOf: payload)
         try input.fileHandleForWriting.close()
         let readyDeadline = Date().addingTimeInterval(2)
@@ -229,13 +318,24 @@ final class Fixture {
         var operationError: Error?
         do { try operation() } catch { operationError = error }
         event("INFO", "Native operation returned; awaiting owned worker exit.")
+        if inputFixture {
+            let application = NSApplication.shared
+            while worker.isRunning {
+                if let event = application.nextEvent(matching: .any, until: Date().addingTimeInterval(0.01),
+                    inMode: .default, dequeue: true) {
+                    application.sendEvent(event)
+                }
+                application.updateWindows()
+            }
+        }
         worker.waitUntilExit()
         event("INFO", "Owned prompt worker reaped.")
         guard worker.terminationStatus == 0 else {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
         if let operationError { throw operationError }
-        event("INFO", "Exact native prompt authenticated and owned worker reaped.")
+        event("INFO", inputFixture ? "Owned public-input fixture verified and worker reaped; no authorization tested." :
+            "Exact native prompt authenticated and owned worker reaped.")
     }
     func verifyPrompt() throws {
         var authorization: AuthorizationRef?
@@ -297,7 +397,8 @@ final class Fixture {
     }
     func run(action: String, paths: [String]) throws {
         if action == "recover" { try recover(); return }
-        guard action == "selftest" || (action == "remove" && !paths.isEmpty && paths.count <= 8) else {
+        guard action == "selftest" || (action == "input-selftest" && paths.isEmpty) ||
+              (action == "remove" && !paths.isEmpty && paths.count <= 8) else {
             throw FixtureFailure(stage: "arguments")
         }
         var session: SecuritySessionId = 0
@@ -307,6 +408,19 @@ final class Fixture {
             throw FixtureFailure(stage: "session-inherited-graphics")
         }
         event("INFO", "Inherited graphical security session prerequisite verified; native prompt still required.")
+        if action == "input-selftest" {
+            let name = "_agensitls0000000000000000"
+            let password = String(repeating: "0123456789abcdef", count: 4)
+            let input = InputFixture(name: name, password: password)
+            try input.prepare()
+            let identity = AccountIdentity(name: name, uid: "0", guid: "00000000-0000-0000-0000-000000000000")
+            try withPrompt(identity, password: password, inputFixture: true) {
+                try input.run(marker: URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent) {
+                    event("INFO", $0)
+                }
+            }
+            return
+        }
         var bytes = [UInt8](repeating: 0, count: 32)
         try Self.check(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes), "password-random")
         var password = bytes.map { String(format: "%02x", $0) }.joined()

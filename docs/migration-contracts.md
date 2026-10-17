@@ -125,6 +125,15 @@ and numeric native status, never credential payloads. Only sanitized helper logs
 the artifact uploader; private recovery journals retain root-only ownership. No workstation account
 or policy is changed.
 
+Before creating an account or changing fixture trust, an owned AppKit receiver checks cross-process
+input consumption using public sample data and the same input core. Only its own native action reads
+its secure control internally and compares committed values, including a wrong-value negative control;
+the sender never reads secure AX values. The fixture-only entry accepts only its actual parent process
+with the exact invocation identity. The production entry remains SecurityAgent-only. Window creation
+follows worker readiness, and the receiver pumps AppKit within the existing deadlines and closes its
+owned window on every path. This regression discriminator is not privileged authentication or P022
+acceptance; those still require the original native operation and trust-removal readbacks.
+
 ## Runtime evidence and limits
 
 A native read-only probe through the user's existing selected proxy discovered20 actual upstream tools

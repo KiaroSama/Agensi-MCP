@@ -279,7 +279,7 @@ if ($Action -eq 'Run') {
     if ($IsMacOS) {
         $helper = Assert-OwnedPath (Join-Path $root '.tmp/mac-trust-fixture')
         Write-CiLog INFO 'Compiling native trust fixture before bounded audit execution.'
-        $null = Invoke-Bounded '/usr/bin/xcrun' @('swiftc','-O','-framework','Security','-framework','OpenDirectory',(Join-Path $PSScriptRoot 'MacTrustFixture.swift'),'-o',$helper) 60
+        $null = Invoke-Bounded '/usr/bin/xcrun' @('swiftc','-O','-framework','Security','-framework','OpenDirectory','-framework','AppKit',(Join-Path $PSScriptRoot 'MacTrustFixture.swift'),'-o',$helper) 60
     }
     try {
         if ($IsWindows) {
@@ -321,7 +321,10 @@ try {
                 Write-CiLog INFO 'Preflight stage=windows-firewall-profiles'
                 if (@(Get-NetFirewallProfile | Where-Object Enabled -NE 'True').Count) { throw 'Native firewall profiles must already be enabled.' }
             }
-            if ($IsMacOS) { Invoke-MacTrustFixture 'selftest' }
+            if ($IsMacOS) {
+                Invoke-MacTrustFixture 'input-selftest'
+                Invoke-MacTrustFixture 'selftest'
+            }
             $text = $utf8.GetString($original)
             if ($text -match '(?m)^\s*[^#\r\n]+\s+(?:mcp\.agensi\.io|auth\.agensi-audit\.test)(?:\s|$)') { throw 'Preexisting observer hostname mapping refused.' }
             [IO.File]::WriteAllText($hosts, $text + "`n127.0.0.1 mcp.agensi.io auth.agensi-audit.test`n", $utf8)
