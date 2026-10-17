@@ -126,7 +126,7 @@ function focused(window, secure, nonce, marker, deadline) {
     focusFailure = 0;
     return true;
 }
-function enterPassword(window, secure, nonce, input, deadline) {
+function enterPassword(window, username, secure, nonce, input, deadline) {
     ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
     if (!usKeyboard()) fail(83);
     while (true) {
@@ -142,13 +142,27 @@ function enterPassword(window, secure, nonce, input, deadline) {
         delay(0.01);
     }
     if (Date.now() >= deadline) fail(91);
-    if (Number($.AXUIElementSetAttributeValue(secure, $('AXFocused'), $.kCFBooleanTrue)) !== 0) fail(76);
+    const source = $.CGEventSourceCreate(-1);
+    if (!source) fail(76);
+    const tabDown = $.CGEventCreateKeyboardEvent(source, 0x30, true);
+    const tabUp = $.CGEventCreateKeyboardEvent(source, 0x30, false);
+    if (!tabDown || !tabUp) fail(76);
+    $.CGEventSetFlags(tabDown, 0);
+    $.CGEventSetFlags(tabUp, 0);
+    if (text(username, 'AXValue') !== input.name ||
+        !focused(window, username, nonce, input.marker, deadline)) fail(92);
+    let navigated = false;
+    try {
+        $.CGEventPostToPid(agentPID, tabDown);
+        navigated = true;
+    } finally {
+        if (navigated && agentApplication && !agentApplication.terminated &&
+            Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
+    }
     while (!focused(window, secure, nonce, input.marker, deadline)) {
         if (Date.now() >= deadline) fail(76);
         delay(0.01);
     }
-    const source = $.CGEventSourceCreate(-1);
-    if (!source) fail(76);
     // Physical ANSI-US positions; secure input may ignore Unicode overrides.
     const keys = { '0': 0x1d, '1': 0x12, '2': 0x13, '3': 0x14, '4': 0x15,
         '5': 0x17, '6': 0x16, '7': 0x1a, '8': 0x1c, '9': 0x19,
@@ -231,7 +245,7 @@ function run() {
             if (controls && approve) {
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
-                const source = enterPassword(controls.window, controls.passwords[0], controls.nonces[0], input, deadline);
+                const source = enterPassword(controls.window, controls.users[0], controls.passwords[0], controls.nonces[0], input, deadline);
                 input.password = '';
                 const down = $.CGEventCreateKeyboardEvent(source, 0x24, true);
                 const up = $.CGEventCreateKeyboardEvent(source, 0x24, false);

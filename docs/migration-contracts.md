@@ -108,12 +108,14 @@ access through the read-only preflight API; it never requests or grants that acc
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
 containing the unique invocation executable name. Password input uses one private-state physical
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
-and keyboard-layout identifiers must remain US; the worker never switches layouts. Before its single
-secure-focus assignment, it waits within the original deadline for the target application's active
-AX state and exact focused window, without activating the application or retrying that assignment.
-Before each event it checks the exact window, secure-field focus and retained nonce element.
-No password value is read back and no global keyboard or clipboard route is used. A single targeted Return pair submits through
-the same event channel; its neutral key-up targets only the original live process even if submission
+and keyboard-layout identifiers must remain US; the worker never switches layouts. It waits within
+the original deadline for the target application's active AX state and exact focused window, then
+requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
+the original live process because navigation changes focus. Secure-field focus must then be observed
+before any password event; there is no repeated navigation or AX-focus fallback. Before each password
+event it checks the exact window, secure-field focus and retained nonce element.
+No password value is read back and no global keyboard or clipboard route is used. A single targeted
+Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
 closes the prompt. There is no accessibility-press fallback or repeated submission.
 Input delivery or a closed window is not proof of authorization; the native result is still required.
 It never grants permissions, changes TCC or
