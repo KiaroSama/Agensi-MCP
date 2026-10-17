@@ -98,10 +98,21 @@ function run() {
             }
             if (controls && approve) {
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
+                if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
                 if (Number($.AXUIElementSetAttributeValue(controls.passwords[0], $('AXValue'), $(input.password))) !== 0) fail(68);
                 input.password = '';
                 if (Number($.AXUIElementPerformAction(approve[0], $('AXPress'))) !== 0) fail(68);
-                return;
+                while (Date.now() < deadline) {
+                    const remaining = agentWindows();
+                    if (remaining.length === 0) {
+                        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
+                        return;
+                    }
+                    if (remaining.length !== 1) fail(65);
+                    if (!inspect(remaining[0]).text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
+                    delay(0.05);
+                }
+                fail(75);
             }
             delay(0.05);
         }
