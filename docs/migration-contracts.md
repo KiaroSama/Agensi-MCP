@@ -94,17 +94,20 @@ proxy/account traffic are involved. Ordinary four-platform TLS unit tests are no
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
 protected administrative trust authorization right. No authorization-policy workaround is used.
 The hosted-only native helper creates an owned temporary administrator with a memory-only random
-password in an isolated security session. Cached preauthorization is not a supported cleanup route:
-Apple's hardcoded administrative rule has zero credential-cache lifetime. The hosted-only capability
-experiment requests the public graphics-session attribute and uses the runner image's existing
+password, retaining the runner's inherited security session for both native operations and the worker.
+It requires an existing graphical-session attribute before account creation; it does not create a
+synthetic session or treat that attribute as proof of an accessible prompt. Recovery does not require
+graphics. Cached preauthorization is not a supported cleanup route: Apple's hardcoded administrative
+rule has zero credential-cache lifetime. The hosted-only capability experiment uses the runner image's existing
 osascript Accessibility consent for genuine SecurityAgent authentication through public native AX APIs,
 without System Events AppleEvent dispatch. A worker
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
 containing the unique invocation executable name. It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
 fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact
-account/membership removal is checked, including error recovery. Actual hosted results must prove
-this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
+account/membership removal is checked, including error recovery. These owned-reference/account checks
+do not prove erasure of every ambient-session credential cache. No unrelated cache is purged.
+Actual hosted results must prove this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
 cleanup. Account failures expose only fixed operation labels
 and numeric native status, never credential payloads. Only sanitized helper logs are handed back to
 the artifact uploader; private recovery journals retain root-only ownership. No workstation account

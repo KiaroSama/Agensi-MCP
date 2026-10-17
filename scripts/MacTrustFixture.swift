@@ -43,18 +43,9 @@ final class Fixture {
         let fd = open(state.appendingPathComponent(filename).path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw FixtureFailure(stage: "log-create") }
         log = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        var before: SecuritySessionId = 0
-        try Self.check(SessionGetInfo(callerSecuritySession, &before, nil), "session-before")
-        try Self.check(SessionCreate(SessionCreationFlags(rawValue: 0), [.sessionHasGraphicAccess]), "session-create")
-        var after: SecuritySessionId = 0
-        var attributes = SessionAttributeBits(rawValue: 0)
-        try Self.check(SessionGetInfo(callerSecuritySession, &after, &attributes), "session-after")
-        guard after != 0, before != after, attributes.contains(.sessionHasGraphicAccess) else {
-            throw FixtureFailure(stage: "session-isolation-or-graphics")
-        }
         node = try ODNode(session: ODSession.default(), type: UInt32(kODNodeTypeLocalNodes))
         admin = try node.record(withRecordType: kODRecordTypeGroups, name: "admin", attributes: kODAttributeTypeAllAttributes)
-        event("INFO", "Isolated native authorization session established.")
+        event("INFO", "Native fixture ownership and account recovery ready.")
     }
 
     static func check(_ status: OSStatus, _ stage: String) throws {
@@ -295,6 +286,13 @@ final class Fixture {
         guard action == "selftest" || (action == "remove" && !paths.isEmpty && paths.count <= 8) else {
             throw FixtureFailure(stage: "arguments")
         }
+        var session: SecuritySessionId = 0
+        var attributes = SessionAttributeBits(rawValue: 0)
+        try Self.check(SessionGetInfo(callerSecuritySession, &session, &attributes), "session-inherited")
+        guard session != 0, attributes.contains(.sessionHasGraphicAccess) else {
+            throw FixtureFailure(stage: "session-inherited-graphics")
+        }
+        event("INFO", "Inherited graphical security session prerequisite verified; native prompt still required.")
         var bytes = [UInt8](repeating: 0, count: 32)
         try Self.check(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes), "password-random")
         var password = bytes.map { String(format: "%02x", $0) }.joined()
