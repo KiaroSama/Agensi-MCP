@@ -3,6 +3,7 @@ ObjC.import('stdlib');
 ObjC.import('ApplicationServices');
 ObjC.import('AppKit');
 ObjC.import('Carbon');
+ObjC.bindFunction('CFRelease', ['void', ['void *']]);
 
 let stage = 1;
 let agentPID = null;
