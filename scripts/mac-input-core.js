@@ -4,6 +4,7 @@ ObjC.import('ApplicationServices');
 ObjC.import('AppKit');
 ObjC.import('Carbon');
 ObjC.bindFunction('CFRelease', ['void', ['void *']]);
+ObjC.bindFunction('getppid', ['int', []]);
 
 return function nativeInputWorker(fixtureMode) {
 let fixtureMarker = null;
