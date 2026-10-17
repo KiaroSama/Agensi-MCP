@@ -49,13 +49,21 @@ final class InputFixture: NSObject {
 
     func run(marker: String, report: (String) -> Void) throws {
         defer {
+            let editor = secure.currentEditor()
+            let received = editor?.string ?? secure.stringValue
+            let length = received.count
+            let category = length == 0 ? "zero" : (length < 64 ? "partial" : (length == 64 ? "exact" : "excess"))
+            let editorFocused = editor.map { window?.firstResponder === $0 } ?? false
+            report("Owned input fixture submitted=" + String(submitted) +
+                " username_match=" + String(username.stringValue == expectedName) +
+                " committed_password_match=" + String(secure.stringValue == expectedPassword) +
+                " editor_password_match=" + String(editor?.string == expectedPassword) +
+                " wrong_control_rejected=" + String(received != String(repeating: "f", count: 64)) +
+                " secure_editor_focused=" + String(editorFocused) + " received_length=" + category)
             window?.close()
             window = nil
             username.stringValue = ""
             secure.stringValue = ""
-            report("Owned input fixture submitted=" + String(submitted) +
-                " username_match=" + String(usernameMatch) + " password_match=" + String(passwordMatch) +
-                " wrong_control_rejected=" + String(wrongControlRejected))
         }
         guard Thread.isMainThread else { throw FixtureFailure(stage: "input-fixture-main-thread") }
         let application = NSApplication.shared

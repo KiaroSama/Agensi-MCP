@@ -12,7 +12,9 @@ let stage = 1;
 let agentPID = null;
 let agentApplication = null;
 let pairedInput = false;
+let focusFailure = 0;
 function fail(code) {
+    if ((code === 76 || code === 77) && focusFailure) code = focusFailure;
     if (pairedInput) throw { errorNumber: code };
     $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.exit(code > 0 && code < 128 ? code : 70);
@@ -112,14 +114,17 @@ function usKeyboard() {
     }
 }
 function focused(window, secure, nonce, marker, deadline) {
-    if (Date.now() >= deadline || !usKeyboard()) return false;
+    if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
+    if (!usKeyboard()) { focusFailure = 86; return false; }
     const windows = agentWindows();
-    if (windows.length !== 1 || !$.CFEqual(windows[0], window)) return false;
-    if (text(nonce, 'AXValue').indexOf(marker) === -1) return false;
+    if (windows.length !== 1 || !$.CFEqual(windows[0], window)) { focusFailure = 87; return false; }
+    if (text(nonce, 'AXValue').indexOf(marker) === -1) { focusFailure = 88; return false; }
     const app = $.AXUIElementCreateApplication(agentPID);
     if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-    return Boolean($.CFEqual(attribute(app, 'AXFocusedWindow'), window)) &&
-        Boolean($.CFEqual(attribute(app, 'AXFocusedUIElement'), secure));
+    if (!$.CFEqual(attribute(app, 'AXFocusedWindow'), window)) { focusFailure = 89; return false; }
+    if (!$.CFEqual(attribute(app, 'AXFocusedUIElement'), secure)) { focusFailure = 90; return false; }
+    focusFailure = 0;
+    return true;
 }
 function enterPassword(window, secure, nonce, input, deadline) {
     ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
