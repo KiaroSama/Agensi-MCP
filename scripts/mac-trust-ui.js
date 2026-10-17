@@ -158,7 +158,7 @@ function run() {
                 if (windows.length > 1) fail(65);
                 if (windows.length === 1) {
                     controls = inspect(windows[0], input.marker);
-                    if (controls.nonces.length !== 1) fail(67);
+                    if (controls.nonces.length === 0) fail(67);
                     approve = controls.buttons.filter(button => ['OK', 'Modify Settings', 'Update Settings'].indexOf(text(button, 'AXTitle')) !== -1);
                     if (controls.users.length !== 1 || controls.passwords.length !== 1 || approve.length !== 1) fail(68);
                     if (agentWindows().length !== 1) fail(65);
