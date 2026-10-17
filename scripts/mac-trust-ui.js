@@ -70,17 +70,31 @@ function inspect(window, marker) {
     }
     return result;
 }
+let keyboardTraced = false;
 function usKeyboard() {
+    const trace = !keyboardTraced;
+    keyboardTraced = true;
+    function boundary(number) {
+        if (trace) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+            $('B' + number + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
+    }
+    boundary(1);
     const input = $.TISCopyCurrentKeyboardInputSource();
+    boundary(2);
     const layout = $.TISCopyCurrentKeyboardLayoutInputSource();
+    boundary(3);
     try {
-        return Boolean(input && layout) && [input, layout].every(source => {
+        return Boolean(input && layout) && [input, layout].every((source, index) => {
+            boundary(4 + index);
             const identifier = $.TISGetInputSourceProperty(source, $.kTISPropertyInputSourceID);
             return identifier && String(ObjC.unwrap(ObjC.castRefToObject(identifier))) === 'com.apple.keylayout.US';
         });
     } finally {
+        boundary(6);
         if (input) $.CFRelease(input);
+        boundary(7);
         if (layout) $.CFRelease(layout);
+        boundary(8);
     }
 }
 function focused(window, secure, nonce, marker, deadline) {

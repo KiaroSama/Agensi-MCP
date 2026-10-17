@@ -179,14 +179,22 @@ final class Fixture {
         let deadline = DispatchSource.makeTimerSource(queue: .global())
         deadline.schedule(deadline: .now() + 7)
         deadline.setEventHandler {
-            if worker.isRunning { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
-            let tail = try? output.fileHandleForReading.read(upToCount: 32)
-            let code = tail.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .newlines)
-            if let code, code.range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
-                self.event("ERROR", "Native prompt deadline worker=" + code)
-            } else {
-                self.event("ERROR", "Native prompt deadline; worker status=" + String(worker.terminationStatus))
+            let killed = worker.isRunning
+            if killed { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
+            let tail = try? output.fileHandleForReading.read(upToCount: 64)
+            var diagnostic = "invalid"
+            if let tail, tail.count < 64, let frames = String(data: tail, encoding: .utf8),
+               frames.isEmpty || frames.hasSuffix("\n") {
+                let lines = frames.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+                if lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7})$", options: .regularExpression) != nil }) {
+                    let boundary = lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none"
+                    let code = lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none"
+                    diagnostic = "boundary=" + boundary + " worker=" + code
+                }
             }
+            self.event("ERROR", "Native prompt deadline " + diagnostic +
+                " reason=" + String(worker.terminationReason.rawValue) +
+                " status=" + String(worker.terminationStatus) + " watchdog_killed=" + String(killed))
             _exit(1)
         }
         deadline.resume()
