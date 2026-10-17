@@ -153,6 +153,7 @@ function run() {
                 enterPassword(controls.window, controls.passwords[0], input, deadline);
                 input.password = '';
                 if (!focused(controls.window, controls.passwords[0], input.marker, deadline)) fail(76);
+                if (text(controls.users[0], 'AXValue') !== input.name) fail(78);
                 if (Number($.AXUIElementPerformAction(approve[0], $('AXPress'))) !== 0) fail(68);
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();
@@ -161,7 +162,10 @@ function run() {
                         return;
                     }
                     if (remaining.length !== 1) fail(65);
-                    if (!inspect(remaining[0]).text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
+                    const observed = inspect(remaining[0]);
+                    if (!observed.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
+                    if (observed.users.length !== 1 || text(observed.users[0], 'AXValue') !== input.name) fail(79);
+                    if (observed.text.some(value => /wrong password|incorrect password|try again|authentication failed/i.test(value))) fail(80);
                     delay(0.05);
                 }
                 fail(75);

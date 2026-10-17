@@ -41,7 +41,7 @@ function Assert-OwnedPath([string]$Path) {
     }
     return $full
 }
-function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 10, [switch]$Isolated) {
+function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 10, [switch]$Isolated, [switch]$InvocationOwner) {
     $process = [Diagnostics.Process]::new()
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Program
@@ -78,7 +78,8 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
         if (-not $process.HasExited) {
             try {
                 $startedAt = $process.get_StartTime().ToUniversalTime().Ticks
-                $processRecord = Join-Path $state ('process-' + $process.Id + '.json')
+                $recordPrefix = if ($InvocationOwner) { 'owner-process-' } else { 'process-' }
+                $processRecord = Join-Path $state ($recordPrefix + $process.Id + '.json')
                 [IO.File]::WriteAllText($processRecord, (ConvertTo-Json @{ pid = $process.Id; started = $startedAt }), $utf8)
             } catch {
                 if (-not $process.HasExited) { throw }
@@ -282,17 +283,17 @@ if ($Action -eq 'Run') {
     }
     try {
         if ($IsWindows) {
-            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165
+            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165 -InvocationOwner
         } else {
             $sudo = (Get-Command sudo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165
+            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Execute','-StateRoot',$state) 165 -InvocationOwner
         }
     } finally {
         # A killed inner owner cannot run finally; the surviving outer owner replays its journal.
         if ($IsWindows) {
-            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35
+            $null = Invoke-Bounded $pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35 -InvocationOwner
         } else {
-            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35
+            $null = Invoke-Bounded $sudo @('-n','--preserve-env=PATH,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_WORKSPACE,GITHUB_RUN_ID',$pwsh,'-NoLogo','-NoProfile','-NonInteractive','-File',$ownerScript,'-Action','Recover','-StateRoot',$state) 35 -InvocationOwner
         }
         Write-CiLog INFO 'Disposable native fixture owner exited with recovery checked.'
     }
