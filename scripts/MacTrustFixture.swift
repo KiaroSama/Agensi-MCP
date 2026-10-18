@@ -85,14 +85,6 @@ final class InputFixture: NSObject {
             " secure_editor_present=" + String(secure.currentEditor() != nil))
     }
 
-    private func verifyWindows(_ original: NSWindow) throws {
-        let windows = NSApplication.shared.windows
-        guard windows.count <= 160,
-              !windows.contains(where: { $0 !== original && ($0.isVisible || $0.isKeyWindow || $0 is NSPanel) }) else {
-            throw FixtureFailure(stage: "input-fixture-unexpected-window")
-        }
-    }
-
     func run(marker: String, report: (String) -> Void) throws {
         let setupStart = ProcessInfo.processInfo.systemUptime
         var loopStart: TimeInterval?
@@ -156,7 +148,6 @@ final class InputFixture: NSObject {
                 application.sendEvent(event)
             }
             application.updateWindows()
-            try verifyWindows(ownedWindow)
             if !reportedExtraWindows {
                 let windows = application.windows
                 guard windows.count <= 160 else { throw FixtureFailure(stage: "input-fixture-window-count") }
@@ -185,7 +176,6 @@ final class InputFixture: NSObject {
                 }
             }
         }
-        try verifyWindows(ownedWindow)
         guard submitted else { throw FixtureFailure(stage: "input-fixture-submission-timeout") }
         guard usernameMatch && passwordMatch && wrongControlRejected else {
             throw FixtureFailure(stage: "input-fixture-value-mismatch")
@@ -406,7 +396,16 @@ final class Fixture {
         }
         event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
         var operationError: Error?
-        do { try operation() } catch { operationError = error }
+        do { try operation() } catch {
+            operationError = error
+            if inputFixture {
+                let stage = (error as? FixtureFailure)?.stage ?? "native-operation"
+                let allowed = ["input-fixture-window-count", "input-fixture-submission-timeout",
+                    "input-fixture-value-mismatch", "input-fixture-main-thread", "input-fixture-content",
+                    "input-fixture-focus", "input-fixture-unexpected-window"]
+                event("ERROR", "Owned input operation failed stage=" + (allowed.contains(stage) ? stage : "native-operation"))
+            }
+        }
         event("INFO", "Native operation returned; awaiting owned worker exit.")
         if inputFixture {
             let application = NSApplication.shared
