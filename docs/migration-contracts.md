@@ -110,7 +110,7 @@ containing the unique invocation executable name. Password input uses one privat
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
 and keyboard-layout identifiers must remain US; the worker never switches layouts. It waits within
 the original deadline for the target application's active AX state and exact focused window, then
-requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
+requests username focus once and requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
 the original live process because navigation changes focus. Secure-field focus must then be observed
 before any password event; there is no repeated navigation or AX-focus fallback. Before each password
 event it checks the exact window, secure-field focus and retained nonce element. Application window
@@ -145,13 +145,6 @@ with the exact invocation identity. The production entry remains SecurityAgent-o
 follows worker readiness, and the receiver pumps AppKit within the existing deadlines and closes its
 owned window on every path. This regression discriminator is not privileged authentication or P022
 acceptance; those still require the original native operation and trust-removal readbacks.
-A bounded diagnostic may sample only that public-data worker for one second at 10ms intervals,
-with an independent four-second post-readiness stop request and mandatory reaping. A launch still
-awaiting its PID is marked overdue and stopped on return; the existing helper/tree watchdog remains
-the outer bound. Raw stack reports stay
-private and outside uploads; only fixed, bounded main-thread categories from recognized call-tree
-syntax are logged. Missing access, incomplete capture or unknown format remains explicit. Sampling
-perturbs execution, so category presence is diagnostic evidence, not causality or acceptance.
 
 ## Runtime evidence and limits
 

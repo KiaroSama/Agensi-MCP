@@ -205,6 +205,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         delay(0.01);
     }
     if (Date.now() >= deadline) fail(91);
+    if (Number($.AXUIElementSetAttributeValue(username, $('AXFocused'), $(true))) !== 0) fail(92);
     const source = $.CGEventSourceCreate(-1);
     if (!source) fail(76);
     const tabDown = $.CGEventCreateKeyboardEvent(source, 0x30, true);

@@ -37,124 +37,6 @@ struct AccountIdentity: Codable {
     let guid: String
 }
 
-final class PublicInputSample {
-    private let process = Process()
-    private let lock = NSLock()
-    private var timer: DispatchSourceTimer?
-    private let path: URL
-    private var started = false
-    private var bounded = false
-    private var launchFailed: Int32?
-
-    init(state: URL) {
-        path = state.appendingPathComponent("public-input-sample.txt")
-    }
-
-    func start(pid: Int32, deadline: DispatchTime) {
-        let fd = open(path.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { launchFailed = errno; return }
-        close(fd)
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        process.arguments = [String(pid), "1", "10", "-mayDie", "-file", path.path]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
-        let owner = DispatchSource.makeTimerSource(queue: .global())
-        owner.schedule(deadline: deadline)
-        owner.setEventHandler { [weak self] in self?.stop() }
-        timer = owner
-        owner.resume()
-        do { try process.run() } catch { launchFailed = Int32(clamping: (error as NSError).code); return }
-        lock.lock()
-        started = true
-        if bounded && process.isRunning { kill(process.processIdentifier, SIGKILL) }
-        lock.unlock()
-    }
-
-    func stop() {
-        lock.lock()
-        defer { lock.unlock() }
-        if !started { bounded = true; return }
-        if process.isRunning { bounded = true; kill(process.processIdentifier, SIGKILL) }
-        process.waitUntilExit()
-    }
-
-    func report(_ emit: (String) -> Void) {
-        stop()
-        timer?.cancel()
-        guard started, launchFailed == nil else {
-            emit("Owned public sample status=launch_failed code=" + String(launchFailed ?? -1))
-            return
-        }
-        guard !bounded, process.terminationStatus == 0 else {
-            emit("Owned public sample status=incomplete exit=" + String(process.terminationStatus))
-            return
-        }
-        let fd = open(path.path, O_RDONLY | O_NOFOLLOW)
-        guard fd >= 0 else { emit("Owned public sample status=report_unavailable"); return }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? handle.close() }
-        var attributes = stat()
-        guard fstat(fd, &attributes) == 0, attributes.st_mode & S_IFMT == S_IFREG,
-              attributes.st_uid == 0, attributes.st_mode & 0o777 == 0o600,
-              attributes.st_size > 0, attributes.st_size <= 2_097_152,
-              let data = try? handle.read(upToCount: 2_097_153), data.count <= 2_097_152,
-              let text = String(data: data, encoding: .utf8) else {
-            emit("Owned public sample status=report_invalid")
-            return
-        }
-        let lines = text.components(separatedBy: .newlines)
-        let header = try? NSRegularExpression(pattern: #"^\s+([0-9]+) Thread_[0-9]+\b"#)
-        let frame = try? NSRegularExpression(pattern: #"^[\s+|:!]+([0-9]+)\s+(.+?)\s+\(in\s"#)
-        guard let header, let frame, let graph = lines.firstIndex(of: "Call graph:") else {
-            emit("Owned public sample status=format_unresolved")
-            return
-        }
-        let end = lines.indices.first { index in
-            index > graph && (lines[index].hasPrefix("Total number in stack") ||
-                lines[index].hasPrefix("Sort by") || lines[index].hasPrefix("Binary Images:"))
-        } ?? lines.count
-        let main = ((graph + 1)..<end).filter { index in
-            lines[index].contains("com.apple.main-thread") &&
-                header.firstMatch(in: lines[index], range: NSRange(lines[index].startIndex..., in: lines[index])) != nil
-        }
-        guard main.count == 1,
-              let match = header.firstMatch(in: lines[main[0]], range: NSRange(lines[main[0]].startIndex..., in: lines[main[0]])),
-              let number = Range(match.range(at: 1), in: lines[main[0]]), let total = Int(lines[main[0]][number]), total > 0 else {
-            emit("Owned public sample status=main_thread_unresolved")
-            return
-        }
-        var counts = ["ax": 0, "cg_event": 0, "tis": 0, "objc_dispatch": 0, "jsc_gc": 0, "mach_wait": 0]
-        var frames = 0
-        for line in lines.dropFirst(main[0] + 1) {
-            let range = NSRange(line.startIndex..., in: line)
-            if header.firstMatch(in: line, range: range) != nil ||
-                line.hasPrefix("Total number in stack") || line.hasPrefix("Sort by") || line.hasPrefix("Binary Images:") { break }
-            guard let match = frame.firstMatch(in: line, range: range),
-                  let number = Range(match.range(at: 1), in: line), let count = Int(line[number]),
-                  let symbolRange = Range(match.range(at: 2), in: line), count > 0 else { continue }
-            frames += 1
-            let symbol = String(line[symbolRange])
-            let categories: [(String, Bool)] = [
-                ("ax", symbol.hasPrefix("AXUIElement") || symbol.hasPrefix("_AXUIElement")),
-                ("cg_event", ["CGEventCreateKeyboardEvent", "CGEventSetFlags", "CGEventPostToPid"].contains(symbol)),
-                ("tis", ["TISCopyCurrentKeyboardInputSource", "TISCopyCurrentKeyboardLayoutInputSource", "TISGetInputSourceProperty"].contains(symbol)),
-                ("objc_dispatch", symbol.hasPrefix("objc_msgSend") || symbol == "-[NSInvocation invoke]"),
-                ("jsc_gc", symbol.hasPrefix("JSC::Heap::collect") || symbol.hasPrefix("JSC::GCThread") || symbol.hasPrefix("JSC::MarkedSpace")),
-                ("mach_wait", symbol.hasPrefix("mach_msg") || symbol.hasPrefix("semaphore_wait_trap") || symbol.hasPrefix("__psynch"))
-            ]
-            for (category, present) in categories where present {
-                counts[category] = max(counts[category] ?? 0, min(count, 9999))
-            }
-        }
-        guard frames > 0 else { emit("Owned public sample status=format_unresolved"); return }
-        emit("Owned public sample status=captured scope=main_thread_noncausal main_samples=" + String(min(total, 9999)) +
-            " frames=" + String(min(frames, 9999)) +
-            counts.keys.sorted().map { " " + $0 + "=" + String(counts[$0] ?? 0) }.joined())
-    }
-}
-
 final class InputFixture: NSObject {
     private let username = NSTextField(frame: NSRect(x: 24, y: 112, width: 472, height: 24))
     private let secure = NSSecureTextField(frame: NSRect(x: 24, y: 72, width: 472, height: 24))
@@ -437,7 +319,6 @@ final class Fixture {
         worker.standardInput = input
         worker.standardOutput = output
         worker.standardError = FileHandle.nullDevice
-        let sample = inputFixture ? PublicInputSample(state: state) : nil
         worker.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
         try worker.run()
         let deadline = DispatchSource.makeTimerSource(queue: .global())
@@ -445,7 +326,6 @@ final class Fixture {
         deadline.setEventHandler {
             let killed = worker.isRunning
             if killed { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
-            sample?.stop()
             let tail = try? output.fileHandleForReading.read(upToCount: 64)
             var diagnostic = "invalid"
             if let tail, let frames = try? promptFrames(tail) {
@@ -459,7 +339,6 @@ final class Fixture {
         deadline.resume()
         defer {
             deadline.cancel()
-            sample?.stop()
             if worker.isRunning { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
             try? input.fileHandleForWriting.close()
             try? output.fileHandleForReading.close()
@@ -487,9 +366,6 @@ final class Fixture {
             }
             throw FixtureFailure(stage: "prompt-readiness-protocol")
         }
-        let sampleDeadline = DispatchTime.now() + 4
-        sample?.start(pid: worker.processIdentifier, deadline: sampleDeadline)
-        defer { sample?.report { event("INFO", $0) } }
         event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
         var operationError: Error?
         do { try operation() } catch { operationError = error }
