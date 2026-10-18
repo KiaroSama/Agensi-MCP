@@ -27,7 +27,7 @@ function elapsed() { return (clockMilliseconds() - timing.start); }
 function emitTiming() {
     if (!timing || timingSent) return;
     timingSent = true;
-    const values = [timing.tab, timing.secure, timing.first, timing.count, timing.total,
+    const values = [elapsed(), timing.secure, timing.first, timing.count, timing.total,
         timing.createDown, timing.createUp, timing.flags, timing.post];
     const encoded = values.map((value, index) => {
         if (!Number.isFinite(value) || value < 0) throw { errorNumber: 93 };
@@ -175,7 +175,9 @@ function focused(window, secure, nonce, marker, deadline) {
         if (app === null) { focusFailure = 87; return false; }
         const attributes = focusAttributes(app);
         const windows = attributes.objectAtIndex(0);
-        if (Number(windows.count) !== 1 || !$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 87; return false; }
+        if (Number(windows.count) === 0) { focusFailure = 94; return false; }
+        if (Number(windows.count) !== 1) { focusFailure = 95; return false; }
+        if (!$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
         const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
         if (!matchingNonce) { focusFailure = 88; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(1), window)) { focusFailure = 89; return false; }
@@ -223,9 +225,8 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         if (navigated && agentApplication && !agentApplication.terminated &&
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
-    if (timing) timing.tab = elapsed();
     while (!focused(window, secure, nonce, input.marker, deadline)) {
-        if (focusFailure === 87) focusSeen |= 1;
+        if ([87, 94, 95, 96].indexOf(focusFailure) !== -1) focusSeen |= 1;
         if (focusFailure === 89) focusSeen |= 2;
         if (focusFailure === 90) {
             focusSeen |= 4;
@@ -335,7 +336,7 @@ function run() {
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
-        if (fixtureMode) timing = { start: clockMilliseconds(), tab: 9999, secure: 9999, first: 9999,
+        if (fixtureMode) timing = { start: clockMilliseconds(), secure: 9999, first: 9999,
             count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {
             let controls;
