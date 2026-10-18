@@ -141,12 +141,33 @@ final class InputFixture: NSObject {
         focusState("initial", report: report)
         let deadline = Date().addingTimeInterval(4)
         loopStart = ProcessInfo.processInfo.systemUptime
+        var reportedExtraWindows = false
         while !submitted && Date() < deadline {
             let until = min(deadline, Date().addingTimeInterval(0.01))
             if let event = application.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) {
                 application.sendEvent(event)
             }
             application.updateWindows()
+            if !reportedExtraWindows {
+                let windows = application.windows
+                guard windows.count <= 160 else { throw FixtureFailure(stage: "input-fixture-window-count") }
+                let extra = windows.filter { $0 !== ownedWindow }
+                if !extra.isEmpty {
+                    reportedExtraWindows = true
+                    report("Owned input extra windows count=" + String(extra.count) +
+                        " overflow=" + String(max(0, extra.count - 4)))
+                    let framework = Bundle(for: NSWindow.self)
+                    for observed in extra.prefix(4) {
+                        let appKit = Bundle(for: type(of: observed)) == framework
+                        let name = appKit ? NSStringFromClass(type(of: observed)) : "other"
+                        let valid = name.range(of: "^[A-Za-z_][A-Za-z0-9_.]{0,127}$", options: .regularExpression) != nil
+                        report("Owned input extra window class=" + (valid ? name : "other") +
+                            " appkit=" + String(appKit) + " panel=" + String(observed is NSPanel) +
+                            " visible=" + String(observed.isVisible) + " key=" + String(observed.isKeyWindow) +
+                            " owned=" + String(observed === ownedWindow))
+                    }
+                }
+            }
         }
         guard submitted else { throw FixtureFailure(stage: "input-fixture-submission-timeout") }
         guard usernameMatch && passwordMatch && wrongControlRejected else {

@@ -143,8 +143,11 @@ its secure control internally and compares committed values, including a wrong-v
 the sender never reads secure AX values. The fixture-only entry accepts only its actual parent process
 with the exact invocation identity. The production entry remains SecurityAgent-only. Window creation
 follows worker readiness, and the receiver pumps AppKit within the existing deadlines and closes its
-owned window on every path. This regression discriminator is not privileged authentication or P022
-acceptance; those still require the original native operation and trust-removal readbacks.
+owned window on every path. A bounded one-shot diagnostic reports auxiliary windows owned by this
+public receiver using AppKit-provenance class identifiers and visibility/key/panel flags only, never
+window titles or field values. Native and accessibility snapshots are not atomic or one-to-one.
+This regression discriminator is not privileged authentication or P022 acceptance; those still
+require the original native operation and trust-removal readbacks.
 
 ## Runtime evidence and limits
 
