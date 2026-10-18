@@ -113,7 +113,13 @@ the original deadline for the target application's active AX state and exact foc
 requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
 the original live process because navigation changes focus. Secure-field focus must then be observed
 before any password event; there is no repeated navigation or AX-focus fallback. Before each password
-event it checks the exact window, secure-field focus and retained nonce element.
+event it checks the exact window, secure-field focus and retained nonce element. Application window
+and focus attributes are read together through the native batch API with strict type/shape checks;
+no observation is cached, and batching does not promise an atomic snapshot. An unavailable focus
+attribute fails closed even if the batch's window list would otherwise reject the prompt.
+Fixture timing assigns
+this batch to the window bucket, so its focus-AX bucket is no longer directly comparable to earlier
+separate-read measurements.
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
 closes the prompt. There is no accessibility-press fallback or repeated submission.

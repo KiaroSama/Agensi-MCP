@@ -66,7 +66,7 @@ function children(element, name) {
     for (let index = 0; index < count; index++) result.push(value.objectAtIndex(index));
     return result;
 }
-function agentWindows() {
+function agentElement() {
     let target;
     if (fixtureMode) {
         const parent = Number($.getppid());
@@ -77,7 +77,7 @@ function agentWindows() {
     } else {
         const agents = $.NSRunningApplication.runningApplicationsWithBundleIdentifier('com.apple.SecurityAgent');
         if (Number(agents.count) > 1) fail(65);
-        if (Number(agents.count) === 0) return [];
+        if (Number(agents.count) === 0) return null;
         target = agents.objectAtIndex(0);
     }
     const pid = Number(target.processIdentifier);
@@ -87,7 +87,32 @@ function agentWindows() {
     if (agentApplication.terminated) fail(65);
     const app = $.AXUIElementCreateApplication(pid);
     if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-    return children(app, 'AXWindows');
+    return app;
+}
+function agentWindows() {
+    const app = agentElement();
+    return app === null ? [] : children(app, 'AXWindows');
+}
+function focusAttributes(app) {
+    const values = Ref();
+    const status = Number($.AXUIElementCopyMultipleAttributeValues(
+        app, $(['AXWindows', 'AXFocusedWindow', 'AXFocusedUIElement']), 1, values));
+    if (status !== 0) fail(status);
+    const result = ObjC.castRefToObject(values[0]);
+    if (!result || Number($.CFGetTypeID(result)) !== Number($.CFArrayGetTypeID()) ||
+        Number(result.count) !== 3) fail(66);
+    const windows = result.objectAtIndex(0);
+    if (Number($.CFGetTypeID(windows)) !== Number($.CFArrayGetTypeID())) fail(66);
+    const count = Number(windows.count);
+    if (!Number.isInteger(count) || count < 0 || count > 160) fail(66);
+    const elementType = Number($.AXUIElementGetTypeID());
+    for (let index = 0; index < count; index++) {
+        if (Number($.CFGetTypeID(windows.objectAtIndex(index))) !== elementType) fail(66);
+    }
+    for (let index = 1; index < 3; index++) {
+        if (Number($.CFGetTypeID(result.objectAtIndex(index))) !== elementType) fail(66);
+    }
+    return result;
 }
 function inspect(window, marker) {
     const pending = [{ element: window, depth: 0 }];
@@ -155,16 +180,17 @@ function focused(window, secure, nonce, marker, deadline) {
         const keyboard = usKeyboard();
         checkpoint('keyboard');
         if (!keyboard) { focusFailure = 86; return false; }
-        const windows = agentWindows();
+        const app = agentElement();
+        if (app === null) { focusFailure = 87; return false; }
+        const attributes = focusAttributes(app);
+        const windows = attributes.objectAtIndex(0);
         checkpoint('windows');
-        if (windows.length !== 1 || !$.CFEqual(windows[0], window)) { focusFailure = 87; return false; }
+        if (Number(windows.count) !== 1 || !$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 87; return false; }
         const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
         checkpoint('nonce');
         if (!matchingNonce) { focusFailure = 88; return false; }
-        const app = $.AXUIElementCreateApplication(agentPID);
-        if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-        if (!$.CFEqual(attribute(app, 'AXFocusedWindow'), window)) { focusFailure = 89; return false; }
-        if (!$.CFEqual(attribute(app, 'AXFocusedUIElement'), secure)) { focusFailure = 90; return false; }
+        if (!$.CFEqual(attributes.objectAtIndex(1), window)) { focusFailure = 89; return false; }
+        if (!$.CFEqual(attributes.objectAtIndex(2), secure)) { focusFailure = 90; return false; }
         focusFailure = 0;
         return true;
     } finally {
