@@ -117,9 +117,9 @@ event it checks the exact window, secure-field focus and retained nonce element.
 and focus attributes are read together through the native batch API with strict type/shape checks;
 no observation is cached, and batching does not promise an atomic snapshot. An unavailable focus
 attribute fails closed even if the batch's window list would otherwise reject the prompt.
-Fixture timing assigns
-this batch to the window bucket, so its focus-AX bucket is no longer directly comparable to earlier
-separate-read measurements.
+Fixture-only timing retains aggregate focus-check count and duration and separately measures
+password-event construction, flag assignment and posting. Earlier window/focus component buckets
+are historical and are not directly comparable to these event-operation measurements.
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
 closes the prompt. There is no accessibility-press fallback or repeated submission.

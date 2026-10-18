@@ -28,7 +28,7 @@ function emitTiming() {
     if (!timing || timingSent) return;
     timingSent = true;
     const values = [timing.tab, timing.secure, timing.first, timing.count, timing.total,
-        timing.keyboard, timing.windows, timing.nonce, timing.ax];
+        timing.createDown, timing.createUp, timing.flags, timing.post];
     const encoded = values.map((value, index) => {
         if (!Number.isFinite(value) || value < 0) throw { errorNumber: 93 };
         return Math.min(index === 3 ? 999 : 9999, Math.floor(value));
@@ -167,27 +167,16 @@ function usKeyboard() {
 function focused(window, secure, nonce, marker, deadline) {
     const measured = fixtureMode && passwordPhase;
     const started = measured ? uptime() : 0;
-    let component = started;
-    function checkpoint(name) {
-        if (measured) {
-            const now = uptime();
-            timing[name] += (now - component) * 1000;
-            component = now;
-        }
-    }
     try {
         if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
         const keyboard = usKeyboard();
-        checkpoint('keyboard');
         if (!keyboard) { focusFailure = 86; return false; }
         const app = agentElement();
         if (app === null) { focusFailure = 87; return false; }
         const attributes = focusAttributes(app);
         const windows = attributes.objectAtIndex(0);
-        checkpoint('windows');
         if (Number(windows.count) !== 1 || !$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 87; return false; }
         const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
-        checkpoint('nonce');
         if (!matchingNonce) { focusFailure = 88; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(1), window)) { focusFailure = 89; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(2), secure)) { focusFailure = 90; return false; }
@@ -195,7 +184,6 @@ function focused(window, secure, nonce, marker, deadline) {
         return true;
     } finally {
         if (measured) {
-            checkpoint('ax');
             timing.count++;
             timing.total += (uptime() - started) * 1000;
         }
@@ -274,25 +262,42 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
     for (let index = 0; index < input.password.length; index++) {
         const key = keys[input.password[index]];
         if (key === undefined) fail(64);
+        let operationStart = timing ? uptime() : 0;
         const down = $.CGEventCreateKeyboardEvent(source, key, true);
+        if (timing) timing.createDown += (uptime() - operationStart) * 1000;
+        operationStart = timing ? uptime() : 0;
         const up = $.CGEventCreateKeyboardEvent(source, key, false);
+        if (timing) timing.createUp += (uptime() - operationStart) * 1000;
         if (!down || !up) fail(76);
+        operationStart = timing ? uptime() : 0;
         $.CGEventSetFlags(down, 0);
         $.CGEventSetFlags(up, 0);
+        if (timing) timing.flags += (uptime() - operationStart) * 1000;
         let sent = false;
         let released = false;
         pairedInput = true;
         try {
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(76);
+            operationStart = timing ? uptime() : 0;
             $.CGEventPostToPid(agentPID, down);
             sent = true;
+            if (timing) timing.post += (uptime() - operationStart) * 1000;
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(77);
+            operationStart = timing ? uptime() : 0;
             $.CGEventPostToPid(agentPID, up);
             released = true;
+            if (timing) timing.post += (uptime() - operationStart) * 1000;
         } finally {
             pairedInput = false;
             if (sent && !released && agentApplication && !agentApplication.terminated &&
-                Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
+                Number(agentApplication.processIdentifier) === agentPID) {
+                try {
+                    operationStart = timing ? uptime() : 0;
+                } finally {
+                    $.CGEventPostToPid(agentPID, up);
+                }
+                if (timing) timing.post += (uptime() - operationStart) * 1000;
+            }
         }
     }
     passwordPhase = false;
@@ -330,7 +335,7 @@ function run() {
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
         if (fixtureMode) timing = { start: uptime(), tab: 9999, secure: 9999, first: 9999,
-            count: 0, total: 0, keyboard: 0, windows: 0, nonce: 0, ax: 0 };
+            count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {
             let controls;
             let approve;
