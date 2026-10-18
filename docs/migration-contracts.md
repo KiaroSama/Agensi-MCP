@@ -145,7 +145,7 @@ with the exact invocation identity. The production entry remains SecurityAgent-o
 follows worker readiness, and the receiver pumps AppKit within the existing deadlines and closes its
 owned window on every path. This regression discriminator is not privileged authentication or P022
 acceptance; those still require the original native operation and trust-removal readbacks.
-A bounded diagnostic may sample only that public-data worker for three seconds at 10ms intervals,
+A bounded diagnostic may sample only that public-data worker for one second at 10ms intervals,
 with an independent four-second post-readiness stop request and mandatory reaping. A launch still
 awaiting its PID is marked overdue and stopped on return; the existing helper/tree watchdog remains
 the outer bound. Raw stack reports stay

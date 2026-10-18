@@ -55,7 +55,7 @@ final class PublicInputSample {
         guard fd >= 0 else { launchFailed = errno; return }
         close(fd)
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        process.arguments = [String(pid), "3", "10", "-mayDie", "-file", path.path]
+        process.arguments = [String(pid), "1", "10", "-mayDie", "-file", path.path]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
