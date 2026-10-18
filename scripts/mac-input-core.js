@@ -18,12 +18,12 @@ let focusSnapshot = 0;
 let timing = null;
 let passwordPhase = false;
 let timingSent = false;
-function uptime() {
-    const value = Number($.NSProcessInfo.processInfo.systemUptime);
+function clockMilliseconds() {
+    const value = Date.now();
     if (!Number.isFinite(value)) throw { errorNumber: 93 };
     return value;
 }
-function elapsed() { return (uptime() - timing.start) * 1000; }
+function elapsed() { return (clockMilliseconds() - timing.start); }
 function emitTiming() {
     if (!timing || timingSent) return;
     timingSent = true;
@@ -166,7 +166,7 @@ function usKeyboard() {
 }
 function focused(window, secure, nonce, marker, deadline) {
     const measured = fixtureMode && passwordPhase;
-    const started = measured ? uptime() : 0;
+    const started = measured ? clockMilliseconds() : 0;
     try {
         if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
         const keyboard = usKeyboard();
@@ -185,7 +185,7 @@ function focused(window, secure, nonce, marker, deadline) {
     } finally {
         if (measured) {
             timing.count++;
-            timing.total += (uptime() - started) * 1000;
+            timing.total += (clockMilliseconds() - started);
         }
     }
 }
@@ -262,41 +262,41 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
     for (let index = 0; index < input.password.length; index++) {
         const key = keys[input.password[index]];
         if (key === undefined) fail(64);
-        let operationStart = timing ? uptime() : 0;
+        let operationStart = timing ? clockMilliseconds() : 0;
         const down = $.CGEventCreateKeyboardEvent(source, key, true);
-        if (timing) timing.createDown += (uptime() - operationStart) * 1000;
-        operationStart = timing ? uptime() : 0;
+        if (timing) timing.createDown += (clockMilliseconds() - operationStart);
+        operationStart = timing ? clockMilliseconds() : 0;
         const up = $.CGEventCreateKeyboardEvent(source, key, false);
-        if (timing) timing.createUp += (uptime() - operationStart) * 1000;
+        if (timing) timing.createUp += (clockMilliseconds() - operationStart);
         if (!down || !up) fail(76);
-        operationStart = timing ? uptime() : 0;
+        operationStart = timing ? clockMilliseconds() : 0;
         $.CGEventSetFlags(down, 0);
         $.CGEventSetFlags(up, 0);
-        if (timing) timing.flags += (uptime() - operationStart) * 1000;
+        if (timing) timing.flags += (clockMilliseconds() - operationStart);
         let sent = false;
         let released = false;
         pairedInput = true;
         try {
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(76);
-            operationStart = timing ? uptime() : 0;
+            operationStart = timing ? clockMilliseconds() : 0;
             $.CGEventPostToPid(agentPID, down);
             sent = true;
-            if (timing) timing.post += (uptime() - operationStart) * 1000;
+            if (timing) timing.post += (clockMilliseconds() - operationStart);
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(77);
-            operationStart = timing ? uptime() : 0;
+            operationStart = timing ? clockMilliseconds() : 0;
             $.CGEventPostToPid(agentPID, up);
             released = true;
-            if (timing) timing.post += (uptime() - operationStart) * 1000;
+            if (timing) timing.post += (clockMilliseconds() - operationStart);
         } finally {
             pairedInput = false;
             if (sent && !released && agentApplication && !agentApplication.terminated &&
                 Number(agentApplication.processIdentifier) === agentPID) {
                 try {
-                    operationStart = timing ? uptime() : 0;
+                    operationStart = timing ? clockMilliseconds() : 0;
                 } finally {
                     $.CGEventPostToPid(agentPID, up);
                 }
-                if (timing) timing.post += (uptime() - operationStart) * 1000;
+                if (timing) timing.post += (clockMilliseconds() - operationStart);
             }
         }
     }
@@ -334,7 +334,7 @@ function run() {
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
-        if (fixtureMode) timing = { start: uptime(), tab: 9999, secure: 9999, first: 9999,
+        if (fixtureMode) timing = { start: clockMilliseconds(), tab: 9999, secure: 9999, first: 9999,
             count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {
             let controls;

@@ -119,7 +119,9 @@ no observation is cached, and batching does not promise an atomic snapshot. An u
 attribute fails closed even if the batch's window list would otherwise reject the prompt.
 Fixture-only timing retains aggregate focus-check count and duration and separately measures
 password-event construction, flag assignment and posting. Earlier window/focus component buckets
-are historical and are not directly comparable to these event-operation measurements.
+are historical and are not directly comparable to these event-operation measurements. JavaScript
+intervals use wall-clock milliseconds without an explicit Objective-C clock read; clock adjustment
+and residual observation overhead limit timing conclusions. Swift independently records elapsed uptime.
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
 closes the prompt. There is no accessibility-press fallback or repeated submission.
