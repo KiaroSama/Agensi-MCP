@@ -178,7 +178,18 @@ function focused(window, secure, nonce, marker, deadline) {
         const attributes = focusAttributes(app);
         const windows = attributes.objectAtIndex(0);
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
-        if (Number(windows.count) !== 1) {
+        if (fixtureMode) {
+            let matches = 0;
+            for (let index = 0; index < Number(windows.count); index++) {
+                if ($.CFEqual(windows.objectAtIndex(index), window)) matches++;
+            }
+            if (matches !== 1) { focusFailure = 96; return false; }
+            for (const element of [secure, nonce]) {
+                const owner = attribute(element, 'AXWindow');
+                if (!owner || Number($.CFGetTypeID(owner)) !== Number($.AXUIElementGetTypeID())) fail(66);
+                if (!$.CFEqual(owner, window)) { focusFailure = 96; return false; }
+            }
+        } else if (Number(windows.count) !== 1) {
             let originalMatches = 0;
             let firstNonoriginal = null;
             for (let index = 0; index < Number(windows.count); index++) {
@@ -212,7 +223,7 @@ function focused(window, secure, nonce, marker, deadline) {
             }
             return false;
         }
-        if (!$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
+        if (!fixtureMode && !$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
         const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
         if (!matchingNonce) { focusFailure = 88; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(1), window)) { focusFailure = 89; return false; }
@@ -414,13 +425,18 @@ function run() {
                 }
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();
-                    if (remaining.length === 0) {
+                    const originalAbsent = fixtureMode
+                        ? !remaining.some(candidate => $.CFEqual(candidate, controls.window))
+                        : remaining.length === 0;
+                    if (originalAbsent) {
                         emitTiming();
                         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
                         return;
                     }
-                    if (remaining.length !== 1) fail(65);
-                    const observed = inspect(remaining[0]);
+                    if (fixtureMode) {
+                        if (remaining.filter(candidate => $.CFEqual(candidate, controls.window)).length !== 1) fail(65);
+                    } else if (remaining.length !== 1) fail(65);
+                    const observed = inspect(fixtureMode ? controls.window : remaining[0]);
                     if (!observed.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
                     if (observed.users.length !== 1 || text(observed.users[0], 'AXValue') !== input.name) fail(79);
                     if (observed.text.some(value => /wrong password|incorrect password|try again|authentication failed/i.test(value))) fail(80);

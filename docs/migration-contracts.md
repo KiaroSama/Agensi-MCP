@@ -147,8 +147,14 @@ owned window on every path. A bounded one-shot diagnostic reports auxiliary wind
 public receiver using validated class identifiers from AppKit or system-framework bundle metadata
 and visibility/key/panel flags only, never window titles, field values or bundle paths/identifiers.
 This local metadata filter is not cryptographic identity verification or private-API invocation.
-Native and accessibility snapshots are not atomic or one-to-one.
-This regression discriminator is not privileged authentication or P022 acceptance; those still
+Native and accessibility snapshots are not atomic or one-to-one. After focus, this public receiver's
+worker requires the retained original window exactly once in the bounded AX list, the same focused
+window/field, and matching containing-window attributes for both field and nonce. Other entries never
+become input targets. The receiver rejects additional visible, key or panel windows during dispatch
+and before success. Its closed original window must agree with the receiver's own successful action,
+exact committed-value comparisons and worker success; window absence alone is not a pass.
+This fixture-only window policy does not replace or certify the production SecurityAgent singleton
+guard. This regression discriminator is not privileged authentication or P022 acceptance; those still
 require the original native operation and trust-removal readbacks.
 
 ## Runtime evidence and limits
