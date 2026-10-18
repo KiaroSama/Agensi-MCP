@@ -385,6 +385,7 @@ final class Fixture {
         let frames = try promptFrames(try output.fileHandleForReading.read(upToCount: 64) ?? Data())
         if frames.focus != "none" { event("INFO", "Owned focus diagnostic=" + frames.focus) }
         if frames.timing != "none" { event("INFO", "Owned timing diagnostic=" + frames.timing) }
+        if frames.code != "none" { event("INFO", "Owned worker diagnostic=" + frames.code) }
         guard worker.terminationStatus == 0 else {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
