@@ -95,10 +95,11 @@ function agentWindows() {
     const app = agentElement();
     return app === null ? [] : children(app, 'AXWindows');
 }
-function focusAttributes(app) {
+function focusAttributes(app, pendingAllowed) {
     const values = Ref();
     const status = Number($.AXUIElementCopyMultipleAttributeValues(
         app, $(['AXWindows', 'AXFocusedWindow', 'AXFocusedUIElement']), 1, values));
+    if (status === -25204 && pendingAllowed) throw { snapshotPending: true };
     if (status !== 0) fail(status);
     const result = ObjC.castRefToObject(values[0]);
     if (!result || Number($.CFGetTypeID(result)) !== Number($.CFArrayGetTypeID()) ||
@@ -166,7 +167,7 @@ function usKeyboard() {
         boundary(8);
     }
 }
-function focused(window, secure, nonce, marker, deadline) {
+function focused(window, secure, nonce, marker, deadline, pendingAllowed = false) {
     const measured = fixtureMode && passwordPhase;
     const started = measured ? clockMilliseconds() : 0;
     try {
@@ -175,7 +176,7 @@ function focused(window, secure, nonce, marker, deadline) {
         if (!keyboard) { focusFailure = 86; return false; }
         const app = agentElement();
         if (app === null) { focusFailure = 87; return false; }
-        const attributes = focusAttributes(app);
+        const attributes = focusAttributes(app, pendingAllowed);
         const windows = attributes.objectAtIndex(0);
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
         if (fixtureMode) {
@@ -243,13 +244,18 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
     while (true) {
         if (Date.now() >= deadline) fail(91);
         if (!usKeyboard()) fail(83);
-        const windows = agentWindows();
-        if (windows.length !== 1 || !$.CFEqual(windows[0], window)) fail(65);
-        if (text(nonce, 'AXValue').indexOf(input.marker) === -1) fail(67);
-        const app = $.AXUIElementCreateApplication(agentPID);
-        if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-        if (ObjC.unwrap(attribute(app, 'AXFrontmost')) === true &&
-            $.CFEqual(attribute(app, 'AXFocusedWindow'), window)) break;
+        try {
+            const windows = agentWindows();
+            if (windows.length !== 1 || !$.CFEqual(windows[0], window)) fail(65);
+            if (text(nonce, 'AXValue').indexOf(input.marker) === -1) fail(67);
+            const app = $.AXUIElementCreateApplication(agentPID);
+            if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+            if (ObjC.unwrap(attribute(app, 'AXFrontmost')) === true &&
+                $.CFEqual(attribute(app, 'AXFocusedWindow'), window)) break;
+        } catch (error) {
+            if (!error.snapshotPending) throw error;
+        }
+        if (Date.now() >= deadline) fail(91);
         delay(0.01);
     }
     if (Date.now() >= deadline) fail(91);
@@ -271,7 +277,12 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         if (navigated && agentApplication && !agentApplication.terminated &&
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
-    while (!focused(window, secure, nonce, input.marker, deadline)) {
+    while (true) {
+        try {
+            if (focused(window, secure, nonce, input.marker, deadline, true)) break;
+        } catch (error) {
+            if (!error.snapshotPending) throw error;
+        }
         if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].indexOf(focusFailure) !== -1) focusSeen |= 1;
         if (focusFailure === 89) focusSeen |= 2;
         if (focusFailure === 90) {

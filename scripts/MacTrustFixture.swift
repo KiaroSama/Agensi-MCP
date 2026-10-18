@@ -375,13 +375,23 @@ final class Fixture {
             throw FixtureFailure(stage: "account-native-admin-membership")
         }
     }
-    func withPrompt(_ identity: AccountIdentity, password: String, inputFixture: Bool = false, operation: () throws -> Void) throws {
+    func withPrompt(_ identity: AccountIdentity, password: String, inputFixture: Bool = false,
+                    observeAuthorization: Bool = false, operation: () throws -> Void) throws {
         let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
         guard marker.hasPrefix("mac-trust-"), marker.count == 42,
               marker.dropFirst(10).allSatisfy({ $0.isHexDigit }) else { throw FixtureFailure(stage: "prompt-marker") }
         let script = state.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent(inputFixture ? "scripts/mac-input-fixture.js" : "scripts/mac-trust-ui.js")
         guard script.resolvingSymlinksInPath() == script else { throw FixtureFailure(stage: "prompt-script") }
+        let evidence = observeAuthorization ? try AuthorizationEvidence() : nil
+        defer {
+            if let evidence {
+                let observation = evidence.finish()
+                event(observation.clean ? "INFO" : "ERROR", observation.summary)
+                if !observation.clean { _exit(1) }
+            }
+        }
+        try evidence?.start()
         let worker = Process()
         let input = Pipe()
         let output = Pipe()
@@ -401,6 +411,10 @@ final class Fixture {
             var diagnostic = "invalid"
             if let tail, let frames = try? promptFrames(tail) {
                 diagnostic = "boundary=" + frames.boundary + " worker=" + frames.code + " focus=" + frames.focus + " timing=" + frames.timing
+            }
+            if let evidence {
+                let observation = evidence.finish()
+                self.event(observation.clean ? "INFO" : "ERROR", observation.summary)
             }
             self.event("ERROR", "Native prompt deadline " + diagnostic +
                 " reason=" + String(worker.terminationReason.rawValue) +
@@ -566,7 +580,7 @@ final class Fixture {
             let identity = try createAccount(password: password)
             try verifyAccountLookup(identity)
             if action == "selftest" {
-                try withPrompt(identity, password: password) { try verifyPrompt() }
+                try withPrompt(identity, password: password, observeAuthorization: true) { try verifyPrompt() }
                 throw FixtureFailure(stage: "controlled-restoration")
             } else {
                 for path in paths { try withPrompt(identity, password: password) { try removeTrust(path: path) } }
@@ -581,17 +595,22 @@ final class Fixture {
     }
 }
 
-var fixture: Fixture?
-do {
-    let arguments = Array(CommandLine.arguments.dropFirst())
-    guard arguments.count >= 2 else { throw FixtureFailure(stage: "arguments") }
-    let owner = try Fixture(statePath: arguments[1])
-    fixture = owner
-    try owner.run(action: arguments[0], paths: Array(arguments.dropFirst(2)))
-    owner.event("INFO", "Native trust fixture helper completed.")
-} catch {
-    let stage = (error as? FixtureFailure)?.stage ?? "native-api"
-    fixture?.event("ERROR", "Native helper failed stage=" + stage + "; private details omitted.")
-    if fixture == nil { try? FileHandle.standardError.write(contentsOf: Data("Native helper initialization failed stage=\(stage); private details omitted.\n".utf8)) }
-    exit(1)
+@main
+enum MacTrustFixtureMain {
+    static func main() {
+        var fixture: Fixture?
+        do {
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            guard arguments.count >= 2 else { throw FixtureFailure(stage: "arguments") }
+            let owner = try Fixture(statePath: arguments[1])
+            fixture = owner
+            try owner.run(action: arguments[0], paths: Array(arguments.dropFirst(2)))
+            owner.event("INFO", "Native trust fixture helper completed.")
+        } catch {
+            let stage = (error as? FixtureFailure)?.stage ?? "native-api"
+            fixture?.event("ERROR", "Native helper failed stage=" + stage + "; private details omitted.")
+            if fixture == nil { try? FileHandle.standardError.write(contentsOf: Data("Native helper initialization failed stage=\(stage); private details omitted.\n".utf8)) }
+            exit(1)
+        }
+    }
 }

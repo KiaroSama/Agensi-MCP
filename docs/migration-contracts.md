@@ -132,7 +132,21 @@ and residual observation overhead limit timing conclusions. Swift independently 
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
 closes the prompt. There is no accessibility-press fallback or repeated submission.
+The existing active-window and post-Tab focus waits retry only their known incomplete read snapshots
+within the same absolute deadline. They never replay a username write, navigation, password event or
+submission. Only the post-Tab read-only wait opts into incomplete batch snapshots; other batch callers
+and all per-key failures retain their existing rejection.
 Input delivery or a closed window is not proof of authorization; the native result is still required.
+The hosted native selftest additionally owns a bounded INFO-level authd log stream. It correlates only
+an exact executable path, caller PID and requested right to one engine before emitting fixed outcome
+booleans. Raw records remain bounded in memory and are never saved or uploaded; no logging configuration,
+private-data or debug capture is enabled. Missing, malformed or ambiguous evidence remains unresolved,
+not proof of absent submission. False outcome flags mean not observed, not proved absent. The authd
+emitter path/PID is retained with the engine to reject cross-process reuse. Observer startup precedes
+the worker under the existing helper bound; it does not certify subscription readiness. The observer
+is killed and reaped before the existing watchdog exits.
+Synthetic parser controls reject wrong identities, unrelated engines, duplicate anchors and invalid
+or oversized records. These diagnostics never replace the native authorization result.
 It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
 fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact
