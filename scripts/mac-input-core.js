@@ -15,10 +15,32 @@ let pairedInput = false;
 let focusFailure = 0;
 let focusSeen = 0;
 let focusSnapshot = 0;
+let timing = null;
+let passwordPhase = false;
+let timingSent = false;
+function uptime() {
+    const value = Number($.NSProcessInfo.processInfo.systemUptime);
+    if (!Number.isFinite(value)) throw { errorNumber: 93 };
+    return value;
+}
+function elapsed() { return (uptime() - timing.start) * 1000; }
+function emitTiming() {
+    if (!timing || timingSent) return;
+    timingSent = true;
+    const values = [timing.tab, timing.secure, timing.first, timing.count, timing.total,
+        timing.keyboard, timing.windows, timing.nonce, timing.ax];
+    const encoded = values.map((value, index) => {
+        if (!Number.isFinite(value) || value < 0) throw { errorNumber: 93 };
+        return Math.min(index === 3 ? 999 : 9999, Math.floor(value));
+    });
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+        $('T' + encoded.join(':') + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
+}
 function fail(code) {
     if ((code === 76 || code === 77) && focusFailure) code = focusFailure;
     if (pairedInput) throw { errorNumber: code };
-    if (focusSeen) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+    emitTiming();
+    if (!fixtureMode && focusSeen) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
         $('D' + focusSeen + ':' + focusSnapshot + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E' + stage + ':' + code + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     $.exit(code > 0 && code < 128 ? code : 70);
@@ -95,7 +117,7 @@ function usKeyboard() {
     const trace = !keyboardTraced;
     keyboardTraced = true;
     function boundary(number) {
-        if (trace) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+        if (trace && !fixtureMode) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
             $('B' + number + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
     }
     boundary(1);
@@ -118,17 +140,40 @@ function usKeyboard() {
     }
 }
 function focused(window, secure, nonce, marker, deadline) {
-    if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
-    if (!usKeyboard()) { focusFailure = 86; return false; }
-    const windows = agentWindows();
-    if (windows.length !== 1 || !$.CFEqual(windows[0], window)) { focusFailure = 87; return false; }
-    if (text(nonce, 'AXValue').indexOf(marker) === -1) { focusFailure = 88; return false; }
-    const app = $.AXUIElementCreateApplication(agentPID);
-    if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-    if (!$.CFEqual(attribute(app, 'AXFocusedWindow'), window)) { focusFailure = 89; return false; }
-    if (!$.CFEqual(attribute(app, 'AXFocusedUIElement'), secure)) { focusFailure = 90; return false; }
-    focusFailure = 0;
-    return true;
+    const measured = fixtureMode && passwordPhase;
+    const started = measured ? uptime() : 0;
+    let component = started;
+    function checkpoint(name) {
+        if (measured) {
+            const now = uptime();
+            timing[name] += (now - component) * 1000;
+            component = now;
+        }
+    }
+    try {
+        if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
+        const keyboard = usKeyboard();
+        checkpoint('keyboard');
+        if (!keyboard) { focusFailure = 86; return false; }
+        const windows = agentWindows();
+        checkpoint('windows');
+        if (windows.length !== 1 || !$.CFEqual(windows[0], window)) { focusFailure = 87; return false; }
+        const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
+        checkpoint('nonce');
+        if (!matchingNonce) { focusFailure = 88; return false; }
+        const app = $.AXUIElementCreateApplication(agentPID);
+        if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+        if (!$.CFEqual(attribute(app, 'AXFocusedWindow'), window)) { focusFailure = 89; return false; }
+        if (!$.CFEqual(attribute(app, 'AXFocusedUIElement'), secure)) { focusFailure = 90; return false; }
+        focusFailure = 0;
+        return true;
+    } finally {
+        if (measured) {
+            checkpoint('ax');
+            timing.count++;
+            timing.total += (uptime() - started) * 1000;
+        }
+    }
 }
 function enterPassword(window, username, secure, nonce, input, deadline) {
     ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
@@ -163,6 +208,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         if (navigated && agentApplication && !agentApplication.terminated &&
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
+    if (timing) timing.tab = elapsed();
     while (!focused(window, secure, nonce, input.marker, deadline)) {
         if (focusFailure === 87) focusSeen |= 1;
         if (focusFailure === 89) focusSeen |= 2;
@@ -192,10 +238,13 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         if (Date.now() >= deadline) fail(76);
         delay(0.01);
     }
+    if (timing) timing.secure = elapsed();
+    passwordPhase = fixtureMode;
     // Physical ANSI-US positions; secure input may ignore Unicode overrides.
     const keys = { '0': 0x1d, '1': 0x12, '2': 0x13, '3': 0x14, '4': 0x15,
         '5': 0x17, '6': 0x16, '7': 0x1a, '8': 0x1c, '9': 0x19,
         a: 0x00, b: 0x0b, c: 0x08, d: 0x02, e: 0x0e, f: 0x03 };
+    if (timing) timing.first = elapsed();
     for (let index = 0; index < input.password.length; index++) {
         const key = keys[input.password[index]];
         if (key === undefined) fail(64);
@@ -220,6 +269,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
                 Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
         }
     }
+    passwordPhase = false;
     return source;
 }
 function run() {
@@ -253,6 +303,8 @@ function run() {
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
+        if (fixtureMode) timing = { start: uptime(), tab: 9999, secure: 9999, first: 9999,
+            count: 0, total: 0, keyboard: 0, windows: 0, nonce: 0, ax: 0 };
         while (Date.now() < deadline) {
             let controls;
             let approve;
@@ -295,6 +347,7 @@ function run() {
                 while (Date.now() < deadline) {
                     const remaining = agentWindows();
                     if (remaining.length === 0) {
+                        emitTiming();
                         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
                         return;
                     }

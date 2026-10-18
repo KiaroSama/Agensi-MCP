@@ -5,11 +5,11 @@ import OpenDirectory
 import Security
 
 struct FixtureFailure: Error { let stage: String }
-func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String) {
+func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String) {
     guard data.count < 64, let text = String(data: data, encoding: .utf8),
           text.isEmpty || text.hasSuffix("\n") else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3})$",
+    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8})$",
         options: .regularExpression) != nil }) else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     let diagnostics = lines.filter { $0.hasPrefix("D") }
     guard diagnostics.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
@@ -17,9 +17,18 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
         let parts = frame.dropFirst().split(separator: ":")
         guard let snapshot = Int(parts[1]), snapshot <= 511 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     }
+    let timings = lines.filter { $0.hasPrefix("T") }
+    guard timings.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    if let frame = timings.first {
+        let parts = frame.dropFirst().split(separator: ":")
+        guard let count = Int(parts[3]), count <= 999,
+              !lines.contains(where: { $0.hasPrefix("B") || $0.hasPrefix("D") }) else {
+            throw FixtureFailure(stage: "prompt-tail-protocol")
+        }
+    }
     return (lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none",
         lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none",
-        diagnostics.first.map(String.init) ?? "none")
+        diagnostics.first.map(String.init) ?? "none", timings.first.map(String.init) ?? "none")
 }
 
 struct AccountIdentity: Codable {
@@ -77,7 +86,16 @@ final class InputFixture: NSObject {
     }
 
     func run(marker: String, report: (String) -> Void) throws {
+        let setupStart = ProcessInfo.processInfo.systemUptime
+        var loopStart: TimeInterval?
         defer {
+            let now = ProcessInfo.processInfo.systemUptime
+            let setup = ((loopStart ?? now) - setupStart) * 1000
+            let loop = loopStart.map { (now - $0) * 1000 } ?? 0
+            if setup.isFinite && loop.isFinite && setup >= 0 && loop >= 0 {
+                report("Owned input timing setup_ms=" + String(Int(min(9999, setup))) +
+                    " loop_ms=" + String(Int(min(9999, loop))))
+            } else { report("Owned input timing invalid") }
             focusState("final", report: report)
             let editor = secure.currentEditor()
             let received = editor?.string ?? secure.stringValue
@@ -122,6 +140,7 @@ final class InputFixture: NSObject {
         guard ownedWindow.makeFirstResponder(username) else { throw FixtureFailure(stage: "input-fixture-focus") }
         focusState("initial", report: report)
         let deadline = Date().addingTimeInterval(4)
+        loopStart = ProcessInfo.processInfo.systemUptime
         while !submitted && Date() < deadline {
             let until = min(deadline, Date().addingTimeInterval(0.01))
             if let event = application.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) {
@@ -310,7 +329,7 @@ final class Fixture {
             let tail = try? output.fileHandleForReading.read(upToCount: 64)
             var diagnostic = "invalid"
             if let tail, let frames = try? promptFrames(tail) {
-                diagnostic = "boundary=" + frames.boundary + " worker=" + frames.code + " focus=" + frames.focus
+                diagnostic = "boundary=" + frames.boundary + " worker=" + frames.code + " focus=" + frames.focus + " timing=" + frames.timing
             }
             self.event("ERROR", "Native prompt deadline " + diagnostic +
                 " reason=" + String(worker.terminationReason.rawValue) +
@@ -365,6 +384,7 @@ final class Fixture {
         event("INFO", "Owned prompt worker reaped.")
         let frames = try promptFrames(try output.fileHandleForReading.read(upToCount: 64) ?? Data())
         if frames.focus != "none" { event("INFO", "Owned focus diagnostic=" + frames.focus) }
+        if frames.timing != "none" { event("INFO", "Owned timing diagnostic=" + frames.timing) }
         guard worker.terminationStatus == 0 else {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
