@@ -176,7 +176,14 @@ function focused(window, secure, nonce, marker, deadline) {
         const attributes = focusAttributes(app);
         const windows = attributes.objectAtIndex(0);
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
-        if (Number(windows.count) !== 1) { focusFailure = 95; return false; }
+        if (Number(windows.count) !== 1) {
+            let originalMatches = 0;
+            for (let index = 0; index < Number(windows.count); index++) {
+                if ($.CFEqual(windows.objectAtIndex(index), window)) originalMatches++;
+            }
+            focusFailure = originalMatches === Number(windows.count) ? 97 : (originalMatches > 0 ? 98 : 99);
+            return false;
+        }
         if (!$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
         const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
         if (!matchingNonce) { focusFailure = 88; return false; }
@@ -226,7 +233,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
     while (!focused(window, secure, nonce, input.marker, deadline)) {
-        if ([87, 94, 95, 96].indexOf(focusFailure) !== -1) focusSeen |= 1;
+        if ([87, 94, 95, 96, 97, 98, 99].indexOf(focusFailure) !== -1) focusSeen |= 1;
         if (focusFailure === 89) focusSeen |= 2;
         if (focusFailure === 90) {
             focusSeen |= 4;
