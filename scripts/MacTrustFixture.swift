@@ -158,11 +158,18 @@ final class InputFixture: NSObject {
                         " overflow=" + String(max(0, extra.count - 4)))
                     let framework = Bundle(for: NSWindow.self)
                     for observed in extra.prefix(4) {
-                        let appKit = Bundle(for: type(of: observed)) == framework
-                        let name = appKit ? NSStringFromClass(type(of: observed)) : "other"
+                        let bundle = Bundle(for: type(of: observed))
+                        let appKit = bundle == framework
+                        let location = bundle.bundleURL.standardizedFileURL.resolvingSymlinksInPath()
+                        let systemFramework = bundle.bundleURL.isFileURL &&
+                            (location.path.hasPrefix("/System/Library/Frameworks/") ||
+                             location.path.hasPrefix("/System/Library/PrivateFrameworks/")) &&
+                            (bundle.bundleIdentifier?.hasPrefix("com.apple.") ?? false)
+                        let name = appKit || systemFramework ? NSStringFromClass(type(of: observed)) : "other"
                         let valid = name.range(of: "^[A-Za-z_][A-Za-z0-9_.]{0,127}$", options: .regularExpression) != nil
                         report("Owned input extra window class=" + (valid ? name : "other") +
-                            " appkit=" + String(appKit) + " panel=" + String(observed is NSPanel) +
+                            " appkit=" + String(appKit) + " system_framework=" + String(systemFramework) +
+                            " panel=" + String(observed is NSPanel) +
                             " visible=" + String(observed.isVisible) + " key=" + String(observed.isKeyWindow) +
                             " owned=" + String(observed === ownedWindow))
                     }
