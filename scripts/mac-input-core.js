@@ -18,6 +18,8 @@ let focusSnapshot = 0;
 let timing = null;
 let passwordPhase = false;
 let timingSent = false;
+let windowDiagnosticAttempted = false;
+let windowDiagnosticCode = 98;
 function clockMilliseconds() {
     const value = Date.now();
     if (!Number.isFinite(value)) throw { errorNumber: 93 };
@@ -178,10 +180,36 @@ function focused(window, secure, nonce, marker, deadline) {
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
         if (Number(windows.count) !== 1) {
             let originalMatches = 0;
+            let firstNonoriginal = null;
             for (let index = 0; index < Number(windows.count); index++) {
-                if ($.CFEqual(windows.objectAtIndex(index), window)) originalMatches++;
+                const candidate = windows.objectAtIndex(index);
+                if ($.CFEqual(candidate, window)) originalMatches++;
+                else if (firstNonoriginal === null) firstNonoriginal = candidate;
             }
             focusFailure = originalMatches === Number(windows.count) ? 97 : (originalMatches > 0 ? 98 : 99);
+            if (fixtureMode && focusFailure === 98) {
+                if (!windowDiagnosticAttempted) {
+                    windowDiagnosticAttempted = true;
+                    try {
+                        if (Date.now() < deadline) {
+                            const role = attribute(firstNonoriginal, 'AXRole');
+                            if (!role || Number($.CFGetTypeID(role)) !== Number($.CFStringGetTypeID())) fail(66);
+                            if (String(ObjC.unwrap(role)) !== 'AXWindow') windowDiagnosticCode = 105;
+                            else if (Date.now() < deadline) {
+                                const subrole = attribute(firstNonoriginal, 'AXSubrole', true);
+                                if (subrole !== null && Number($.CFGetTypeID(subrole)) !== Number($.CFStringGetTypeID())) fail(66);
+                                const name = subrole === null ? '' : String(ObjC.unwrap(subrole));
+                                const known = ['AXStandardWindow', 'AXFloatingWindow', 'AXDialog', 'AXSystemDialog'].indexOf(name);
+                                windowDiagnosticCode = known === -1 ? 104 : 100 + known;
+                            }
+                        }
+                    } catch (error) {
+                        if (error.snapshotPending) throw { errorNumber: -25204 };
+                        throw error;
+                    }
+                }
+                focusFailure = windowDiagnosticCode;
+            }
             return false;
         }
         if (!$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
@@ -233,7 +261,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
             Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, tabUp);
     }
     while (!focused(window, secure, nonce, input.marker, deadline)) {
-        if ([87, 94, 95, 96, 97, 98, 99].indexOf(focusFailure) !== -1) focusSeen |= 1;
+        if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].indexOf(focusFailure) !== -1) focusSeen |= 1;
         if (focusFailure === 89) focusSeen |= 2;
         if (focusFailure === 90) {
             focusSeen |= 4;
