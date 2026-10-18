@@ -100,7 +100,14 @@ The hosted-only native helper creates an owned temporary administrator with a me
 password, retaining the runner's inherited security session for both native operations and the worker.
 It requires an existing graphical-session attribute before account creation; it does not create a
 synthetic session or treat that attribute as proof of an accessible prompt. Recovery does not require
-graphics. Cached preauthorization is not a supported cleanup route: Apple's hardcoded administrative
+graphics. Before starting the native prompt, the owned account must resolve through POSIX with its exact
+name and UID. The password marker is checked internally for native eligibility, never logged; a null
+marker is allowed and only the exact single-asterisk marker is rejected. The native admin group must
+resolve correctly, and successful native UUID mapping and membership checks are required in addition
+to the OpenDirectory password/group readbacks. These synchronous read-only prerequisites use the
+existing helper bound without retries or cache changes. They do not prove authentication or explain
+a persistent prompt; failures still require exact account cleanup.
+Cached preauthorization is not a supported cleanup route: Apple's hardcoded administrative
 rule has zero credential-cache lifetime. The hosted-only capability experiment uses the runner image's existing
 osascript Accessibility consent for genuine SecurityAgent authentication through public native AX APIs,
 without System Events AppleEvent dispatch. The same worker separately checks existing event-synthesis

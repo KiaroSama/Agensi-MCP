@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import Darwin.membership
 import Foundation
 import OpenDirectory
 import Security
@@ -332,6 +333,48 @@ final class Fixture {
             throw FixtureFailure(stage: stage + ":" + String((error as NSError).code))
         }
     }
+    func verifyAccountLookup(_ identity: AccountIdentity) throws {
+        guard let uid = uid_t(identity.uid) else { throw FixtureFailure(stage: "account-posix-uid") }
+        errno = 0
+        let entry = getpwuid(uid)
+        let lookupStatus = entry == nil ? errno : 0
+        let found = entry != nil
+        let uidMatch = entry?.pointee.pw_uid == uid
+        let nameMatch = entry?.pointee.pw_name.map { actual in
+            identity.name.withCString { strcmp(actual, $0) == 0 }
+        } ?? false
+        let passwordEligible = entry.map { record in
+            record.pointee.pw_passwd.map { strcmp($0, "*") != 0 } ?? true
+        } ?? false
+        event("INFO", "Owned POSIX lookup found=" + String(found) + " name_match=" + String(nameMatch) +
+            " uid_match=" + String(uidMatch) + " password_eligible=" + String(passwordEligible) +
+            " status=" + String(lookupStatus))
+        guard found && nameMatch && uidMatch && passwordEligible else {
+            throw FixtureFailure(stage: "account-posix-lookup")
+        }
+        errno = 0
+        let group = getgrgid(80)
+        let groupStatus = group == nil ? errno : 0
+        let adminGroup = group?.pointee.gr_gid == 80 &&
+            (group?.pointee.gr_name.map { strcmp($0, "admin") == 0 } ?? false)
+        event("INFO", "Owned native admin group match=" + String(adminGroup) + " status=" + String(groupStatus))
+        guard adminGroup else { throw FixtureFailure(stage: "account-native-admin-group") }
+        var userUUID = UUID().uuid
+        var groupUUID = UUID().uuid
+        let userStatus = mbr_uid_to_uuid(uid, &userUUID)
+        event("INFO", "Owned native user mapping status=" + String(userStatus))
+        guard userStatus == 0 else { throw FixtureFailure(stage: "account-native-user-mapping") }
+        let mappingStatus = mbr_gid_to_uuid(80, &groupUUID)
+        event("INFO", "Owned native group mapping status=" + String(mappingStatus))
+        guard mappingStatus == 0 else { throw FixtureFailure(stage: "account-native-group-mapping") }
+        var member: Int32 = 0
+        let membershipStatus = mbr_check_membership(&userUUID, &groupUUID, &member)
+        event("INFO", "Owned native admin membership status=" + String(membershipStatus) +
+            " member=" + String(membershipStatus == 0 && member == 1))
+        guard membershipStatus == 0 && member == 1 else {
+            throw FixtureFailure(stage: "account-native-admin-membership")
+        }
+    }
     func withPrompt(_ identity: AccountIdentity, password: String, inputFixture: Bool = false, operation: () throws -> Void) throws {
         let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
         guard marker.hasPrefix("mac-trust-"), marker.count == 42,
@@ -521,6 +564,7 @@ final class Fixture {
         var operationError: Error?
         do {
             let identity = try createAccount(password: password)
+            try verifyAccountLookup(identity)
             if action == "selftest" {
                 try withPrompt(identity, password: password) { try verifyPrompt() }
                 throw FixtureFailure(stage: "controlled-restoration")
