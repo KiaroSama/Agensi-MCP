@@ -293,6 +293,17 @@ final class Fixture {
     }
     func createAccount(password: String) throws -> AccountIdentity {
         try recover()
+        setusershell()
+        var shellAccepted = false
+        var shellCount = 0
+        defer { endusershell() }
+        while let shell = getusershell() {
+            shellCount += 1
+            guard shellCount <= 128 else { throw FixtureFailure(stage: "account-shell-list-bound") }
+            if strcmp(shell, "/bin/sh") == 0 { shellAccepted = true }
+        }
+        event("INFO", "Owned account shell accepted=" + String(shellAccepted))
+        guard shellAccepted else { throw FixtureFailure(stage: "account-shell-unavailable") }
         let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16)
         let name = "_agensitls" + suffix
         guard try records(attribute: kODAttributeTypeRecordName, value: name).isEmpty else {
@@ -309,7 +320,7 @@ final class Fixture {
         let attributes: [String: [String]] = [
             kODAttributeTypeUniqueID: [uid], kODAttributeTypePrimaryGroupID: ["20"],
             kODAttributeTypeGUID: [identity.guid], kODAttributeTypeNFSHomeDirectory: ["/var/empty"],
-            kODAttributeTypeUserShell: ["/usr/bin/false"], kODAttributeTypeFullName: ["Agensi temporary TLS fixture"]
+            kODAttributeTypeUserShell: ["/bin/sh"], kODAttributeTypeFullName: ["Agensi temporary TLS fixture"]
         ]
         var stage = "account-create"
         do {
@@ -324,7 +335,8 @@ final class Fixture {
             guard try values(admin, kODAttributeTypeGroupMembers).contains(identity.guid),
                   try values(admin, kODAttributeTypeGroupMembership).contains(identity.name),
                   try values(record, kODAttributeTypeUniqueID) == [uid],
-                  try values(record, kODAttributeTypeGUID) == [identity.guid] else { throw FixtureFailure(stage: stage) }
+                  try values(record, kODAttributeTypeGUID) == [identity.guid],
+                  try values(record, kODAttributeTypeUserShell) == ["/bin/sh"] else { throw FixtureFailure(stage: stage) }
             event("INFO", "Owned temporary admin created and native password verified; no home created.")
             return identity
         } catch let failure as FixtureFailure {

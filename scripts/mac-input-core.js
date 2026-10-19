@@ -260,9 +260,6 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
     }
     if (Date.now() >= deadline) fail(91);
     if (Number($.AXUIElementSetAttributeValue(username, $('AXFocused'), $(true))) !== 0) fail(92);
-    if (!focused(window, username, nonce, input.marker, deadline)) fail(92);
-    if (Number($.AXUIElementSetAttributeValue(username, $('AXValue'), $(input.name))) !== 0) fail(68);
-    if (text(username, 'AXValue') !== input.name) fail(74);
     const source = $.CGEventSourceCreate(-1);
     if (!source) fail(76);
     const tabDown = $.CGEventCreateKeyboardEvent(source, 0x30, true);
@@ -417,6 +414,8 @@ function run() {
                 approve = null;
             }
             if (controls && approve) {
+                if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
+                if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
                 const source = enterPassword(controls.window, controls.users[0], controls.passwords[0], controls.nonces[0], input, deadline);
                 input.password = '';
                 const down = $.CGEventCreateKeyboardEvent(source, 0x24, true);

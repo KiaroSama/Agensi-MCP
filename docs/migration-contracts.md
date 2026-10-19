@@ -98,6 +98,11 @@ these actual CLI proxy/origin observations or successful cleanup. macOS rejects 
 protected administrative trust authorization right. No authorization-policy workaround is used.
 The hosted-only native helper creates an owned temporary administrator with a memory-only random
 password, retaining the runner's inherited security session for both native operations and the worker.
+New owned accounts use `/bin/sh` only after a bounded native accepted-shell enumeration. The API's
+accepted list can include its documented fallback; this does not prove `/etc/shells` file provenance.
+This avoids the explicit `/usr/bin/false` rejection in Apple's PAM account-shell check without changing
+PAM policy, existing accounts or caches. No shell is executed and no home or login session is created.
+The actual SecurityAgent stack and whether shell policy caused a previous failure remain unproved.
 It requires an existing graphical-session attribute before account creation; it does not create a
 synthetic session or treat that attribute as proof of an accessible prompt. Recovery does not require
 graphics. Before starting the native prompt, the owned account must resolve through POSIX with its exact
@@ -117,9 +122,7 @@ containing the unique invocation executable name. Password input uses one privat
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
 and keyboard-layout identifiers must remain US; the worker never switches layouts. It waits within
 the original deadline for the target application's active AX state and exact focused window, then
-requests username focus once, verifies the complete target/focus guard, then performs its single username
-value assignment and readback before one targeted Tab pair. This ordering is a bounded model-commit
-experiment, not a documented SecurityAgent requirement or proof of the authentication failure's cause. Its neutral key-up targets only
+requests username focus once and requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
 the original live process because navigation changes focus. Secure-field focus must then be observed
 before any password event; there is no repeated navigation or AX-focus fallback. Before each password
 event it checks the exact window, secure-field focus and retained nonce element. Application window
