@@ -1,5 +1,7 @@
 //! Explicit Cargo `harness = false` executable; all cases launch the independent native CLI.
 mod ci_support;
+#[cfg(windows)]
+mod ci_worker;
 mod filesystem;
 mod fixture;
 mod http;
@@ -320,6 +322,15 @@ async fn run(options: Options) -> Result<bool> {
         Ok(())
     }
     .await;
+    let shutdown = ci_support::shutdown().await;
+    if shutdown.is_err() {
+        report.record(
+            "native-worker-cleanup",
+            false,
+            json!({"cleanup":false}),
+            None,
+        )?;
+    }
     if result.is_err() {
         // Never emit error payloads which might carry authorization URLs or fixture state.
         report.record(

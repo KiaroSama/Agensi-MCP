@@ -5,7 +5,8 @@ param(
     [string]$CaseRoot,
     [string]$Binary,
     [string]$Certificate,
-    [string]$StateRoot
+    [string]$StateRoot,
+    [switch]$WorkerInvocation
 )
 # This verification owner targets hosted PowerShell 7.4+, not the production 7.0 registration floor.
 $ErrorActionPreference = 'Stop'
@@ -333,6 +334,7 @@ function Restore-Invocation {
 }
 trap {
     [Console]::Error.WriteLine(('TLS bootstrap failed type={0} line={1} action={2} id={3}; values omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber, $Action, (($_.FullyQualifiedErrorId -split ',')[0] -replace '[^A-Za-z0-9_.-]', '_')))
+    if ($WorkerInvocation) { throw 'Native fixture worker invocation failed.' }
     exit 1
 }
 Assert-Hosted
@@ -511,5 +513,6 @@ try {
     Write-CiLog INFO "Completed action=$Action"
 } catch {
     Write-CiLog ERROR ('Native fixture action failed type={0} line={1} action={2} id={3}; payload omitted.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber, $Action, (($_.FullyQualifiedErrorId -split ',')[0] -replace '[^A-Za-z0-9_.-]', '_'))
+    if ($WorkerInvocation) { throw 'Native fixture worker action failed.' }
     exit 1
 } finally { if ($log) { $log.Dispose() } }

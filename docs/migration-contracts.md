@@ -98,7 +98,15 @@ Cleanup removes only the captured owned rule and verifies absence; legacy journa
 original ID lookup. Only the exact property-specific native query-not-found identifier and category
 mean absence; missing commands/providers and other errors fail closed. Synthetic classifier controls
 run before mutation. A successful creator exit alone is not effective-policy proof or a speed guarantee.
-No profile is enabled or changed by this prerequisite.
+No profile is enabled or changed by this prerequisite. Windows native actions share one audit-owned
+PowerShell session instead of paying repeated cold NetSecurity initialization. Its private framed
+stdio accepts only the existing validation/protection/trust/removal actions with exact schema and
+sequence checks; effective-policy and associated-filter observations remain fresh. An explicit
+30-second module-import-only startup stage sits inside the existing audit/execution owners; each
+complete request still has 12 seconds. Failure invalidates the session without restart. Normal exit
+closes stdin and reaps the owner before reporting; bounded exact-PID tree termination is fallback,
+with retained process identity, the existing job owner and outer state recovery still mandatory.
+Native success, timeout and descendant cleanup require actual hosted evidence, not protocol setup alone.
 No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
@@ -156,7 +164,13 @@ submission. Only the post-Tab read-only wait opts into incomplete batch snapshot
 and all per-key failures retain their existing rejection.
 Readiness diagnostics contain only ordered fixed P1–P9 boundaries before the original R handshake:
 entry, channel load, framework imports, bindings, input validation, consent and baseline. The parent
-records elapsed uptime since its existing readiness wait, without resetting that absolute deadline.
+records elapsed monotonic time since successful worker launch, without resetting the absolute deadline.
+Measured Intel startup reached the first script boundary at 1518ms and completed imports/input validation
+at 1876ms, leaving insufficient time for legitimate consent preflight under the old two-second bound.
+Readiness now has three seconds from that same launch origin, including payload delivery; this explicitly
+supersedes the prior post-payload two-second window. The total worker remains seven seconds, input
+remains four seconds and the helper remains ten seconds. The worker owner wins any overlapping budget;
+there is no extra worker, warmup, retry, early readiness or promise of four additional seconds after it.
 Missing phases locate an unfinished boundary, not its cause; phase completion is not native success.
 Windows records fixed begin/end timings around the existing persistent/effective rule and filter queries,
 without extra queries or policy changes. No credential, path, raw UI or native error payload is emitted.

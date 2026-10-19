@@ -1,10 +1,9 @@
 //! Disposable-hosted-runner native fixture state; the outer owner also reverts crash residue.
 use anyhow::{Result, ensure};
 use std::path::{Path, PathBuf};
-use tokio::{
-    process::Command,
-    time::{Duration, timeout},
-};
+#[cfg(not(windows))]
+use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 pub async fn validate() -> Result<()> {
     ensure!(
@@ -53,6 +52,27 @@ impl Lease {
 }
 
 async fn invoke(
+    action: &str,
+    root: Option<&Path>,
+    binary: Option<&Path>,
+    certificate: Option<&Path>,
+) -> Result<()> {
+    #[cfg(windows)]
+    {
+        return crate::ci_worker::invoke(action, root, binary, certificate).await;
+    }
+    #[cfg(not(windows))]
+    invoke_once(action, root, binary, certificate).await
+}
+
+pub async fn shutdown() -> Result<()> {
+    #[cfg(windows)]
+    crate::ci_worker::shutdown().await?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+async fn invoke_once(
     action: &str,
     root: Option<&Path>,
     binary: Option<&Path>,

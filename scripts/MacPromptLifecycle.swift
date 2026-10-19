@@ -50,6 +50,13 @@ func checkReadinessFrames() throws {
     guard failed.failure && !failed.ready else { throw FixtureFailure(stage: "prompt-readiness-selftest") }
 }
 
+func readinessMilliseconds(origin: UInt64, now: UInt64) -> Int32 {
+    guard now >= origin else { return 0 }
+    let elapsed = now - origin
+    guard elapsed < 3_000_000_000 else { return 0 }
+    return Int32((3_000_000_000 - elapsed) / 1_000_000)
+}
+
 func protectPromptWriter(_ handle: FileHandle) throws {
     guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1,
           fcntl(handle.fileDescriptor, F_GETNOSIGPIPE) == 1 else {
@@ -113,6 +120,12 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
 
 func checkPromptFrames() throws {
     try checkReadinessFrames()
+    guard readinessMilliseconds(origin: 100, now: 100) == 3000,
+          readinessMilliseconds(origin: 100, now: 1_500_000_100) == 1500,
+          readinessMilliseconds(origin: 100, now: 3_000_000_100) == 0,
+          readinessMilliseconds(origin: 100, now: 99) == 0 else {
+        throw FixtureFailure(stage: "prompt-readiness-clock-selftest")
+    }
     try checkPromptWriter()
     guard cooperativeCompletionAllowed(mode: true, sent: true, channelError: false, nativeError: false,
         normalExit: true, status: 0) else { throw FixtureFailure(stage: "prompt-mode-selftest") }
@@ -172,8 +185,9 @@ extension Fixture {
         worker.standardError = FileHandle.nullDevice
         worker.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
         try worker.run()
+        let launched = DispatchTime.now()
         let deadline = DispatchSource.makeTimerSource(queue: .global())
-        deadline.schedule(deadline: .now() + 7)
+        deadline.schedule(deadline: launched + 7)
         deadline.setEventHandler {
             let killed = worker.isRunning
             if killed { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
@@ -207,12 +221,10 @@ extension Fixture {
         framed.append(payload)
         try input.fileHandleForWriting.write(contentsOf: framed)
         if !allowNoPrompt { try input.fileHandleForWriting.close() }
-        let readyStart = ProcessInfo.processInfo.systemUptime
-        let readyDeadline = Date().addingTimeInterval(2)
         var readiness = ReadinessFrames()
         do {
             while !readiness.ready && !readiness.failure {
-                let remaining = max(0, Int32(readyDeadline.timeIntervalSinceNow * 1000))
+                let remaining = readinessMilliseconds(origin: launched.uptimeNanoseconds, now: DispatchTime.now().uptimeNanoseconds)
                 var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
                 guard remaining > 0, poll(&ready, 1, remaining) == 1 else {
                     throw FixtureFailure(stage: "prompt-readiness-timeout")
@@ -221,13 +233,13 @@ extension Fixture {
                     throw FixtureFailure(stage: "prompt-readiness-protocol")
                 }
                 if try readiness.consume(value) {
-                    let elapsed = Int((ProcessInfo.processInfo.systemUptime - readyStart) * 1000)
+                    let elapsed = Int((DispatchTime.now().uptimeNanoseconds - launched.uptimeNanoseconds) / 1_000_000)
                     event("INFO", "Owned readiness phase=" + String(readiness.phase) + " elapsed_ms=" + String(elapsed))
                 }
             }
             guard readiness.ready else { throw FixtureFailure(stage: "prompt-readiness-worker") }
         } catch {
-            let elapsed = Int((ProcessInfo.processInfo.systemUptime - readyStart) * 1000)
+            let elapsed = Int((DispatchTime.now().uptimeNanoseconds - launched.uptimeNanoseconds) / 1_000_000)
             event("ERROR", "Owned readiness stopped phase=" + String(readiness.phase) + " elapsed_ms=" + String(elapsed))
             throw error
         }
