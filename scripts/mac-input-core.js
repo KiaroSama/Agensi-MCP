@@ -11,6 +11,9 @@ let fixtureMarker = null;
 let stage = 1;
 let agentPID = null;
 let agentApplication = null;
+let agentExecutable = null;
+let everValidatedTarget = false;
+let postSubmitRead = false;
 let pairedInput = false;
 let focusFailure = 0;
 let focusSeen = 0;
@@ -139,6 +142,7 @@ function attribute(element, name, optional) {
     const value = Ref();
     const status = Number($.AXUIElementCopyAttributeValue(element, $(name), value));
     if (optional && (status === -25205 || status === -25212)) return null;
+    if (status === -25202 && postSubmitRead) throw { invalidPostSubmit: true };
     if (status === -25204 && stage === 4) throw { snapshotPending: true };
     if (status !== 0) fail(status);
     return ObjC.castRefToObject(value[0]);
@@ -170,6 +174,12 @@ function agentElement() {
         if (Number(agents.count) === 0) return null;
         target = agents.objectAtIndex(0);
     }
+    if (!fixtureMode) {
+        if (!target.executableURL) fail(65);
+        const executable = String(ObjC.unwrap(target.executableURL.absoluteString));
+        if (agentExecutable !== null && executable !== agentExecutable) fail(65);
+        agentExecutable = executable;
+    }
     const pid = Number(target.processIdentifier);
     if (agentPID !== null && agentPID !== pid) fail(65);
     agentPID = pid;
@@ -182,6 +192,32 @@ function agentElement() {
 function agentWindows() {
     const app = agentElement();
     return app === null ? [] : children(app, 'AXWindows');
+}
+function boundWindows(deadline) {
+    if (Date.now() >= deadline) fail(91);
+    const agents = $.NSRunningApplication.runningApplicationsWithBundleIdentifier('com.apple.SecurityAgent');
+    if (Number(agents.count) !== 1 || !agentApplication || agentApplication.terminated || agentExecutable === null) fail(65);
+    const current = agents.objectAtIndex(0);
+    if (Number(current.processIdentifier) !== agentPID || current.terminated || !current.executableURL ||
+        String(ObjC.unwrap(current.executableURL.absoluteString)) !== agentExecutable) fail(65);
+    const app = $.AXUIElementCreateApplication(agentPID);
+    const remaining = (deadline - Date.now()) / 1000;
+    if (remaining <= 0 || Number($.AXUIElementSetMessagingTimeout(app, Math.min(0.2, remaining))) !== 0) fail(66);
+    const value = Ref();
+    const status = Number($.AXUIElementCopyAttributeValue(app, $('AXWindows'), value));
+    if (status !== 0) fail(status);
+    if (Date.now() >= deadline) fail(91);
+    const windows = ObjC.castRefToObject(value[0]);
+    if (!windows || Number($.CFGetTypeID(windows)) !== Number($.CFArrayGetTypeID())) fail(66);
+    const count = Number(windows.count);
+    if (!Number.isInteger(count) || count < 0 || count > 160) fail(66);
+    const result = [];
+    for (let index = 0; index < count; index++) {
+        const window = windows.objectAtIndex(index);
+        if (Number($.CFGetTypeID(window)) !== Number($.AXUIElementGetTypeID())) fail(66);
+        result.push(window);
+    }
+    return result;
 }
 function focusAttributes(app, pendingAllowed) {
     const values = Ref();
@@ -475,8 +511,9 @@ function run() {
         const decoded = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
         if (!decoded) fail(64);
         const input = JSON.parse(ObjC.unwrap(decoded));
-        if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'cancelOnly,marker,name,password') ||
-            (!fixtureMode && typeof input.cancelOnly !== 'boolean') ||
+        if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'allowNoPrompt,cancelOnly,marker,name,password') ||
+            (!fixtureMode && (typeof input.cancelOnly !== 'boolean' || typeof input.allowNoPrompt !== 'boolean' ||
+                (input.cancelOnly && input.allowNoPrompt))) ||
             typeof input.marker !== 'string' || !/^mac-trust-[0-9a-f]{32}$/.test(input.marker) ||
             typeof input.name !== 'string' || !/^_agensitls[0-9a-f]{16}$/.test(input.name) ||
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
@@ -521,6 +558,7 @@ function run() {
                 approve = null;
             }
             if (controls && approve) {
+                everValidatedTarget = true;
                 if (!fixtureMode) {
                     if (!agentApplication.executableURL) fail(65);
                     cancellationContext = { window: controls.window, nonce: controls.nonces[0], input,
@@ -548,27 +586,45 @@ function run() {
                         Number(agentApplication.processIdentifier) === agentPID) $.CGEventPostToPid(agentPID, up);
                 }
                 while (Date.now() < deadline) {
-                    const remaining = agentWindows();
-                    const originalAbsent = fixtureMode
-                        ? !remaining.some(candidate => $.CFEqual(candidate, controls.window))
-                        : remaining.length === 0;
+                    let originalAbsent = false;
+                    try {
+                        postSubmitRead = !fixtureMode;
+                        const remaining = fixtureMode ? agentWindows() : boundWindows(deadline);
+                        originalAbsent = fixtureMode
+                            ? !remaining.some(candidate => $.CFEqual(candidate, controls.window))
+                            : remaining.length === 0;
+                        if (!originalAbsent) {
+                            if (fixtureMode) {
+                                if (remaining.filter(candidate => $.CFEqual(candidate, controls.window)).length !== 1) fail(65);
+                            } else if (remaining.length !== 1 || !$.CFEqual(remaining[0], controls.window)) fail(65);
+                            const observed = inspect(controls.window);
+                            if (!observed.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
+                            if (observed.users.length !== 1 || text(observed.users[0], 'AXValue') !== input.name) fail(79);
+                            if (observed.text.some(value => /wrong password|incorrect password|try again|authentication failed/i.test(value))) fail(80);
+                        }
+                    } catch (error) {
+                        postSubmitRead = false;
+                        if (!error.invalidPostSubmit) throw error;
+                        if (boundWindows(deadline).length !== 0) fail(-25202);
+                        originalAbsent = true;
+                    } finally { postSubmitRead = false; }
                     if (originalAbsent) {
                         emitTiming();
                         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
                         return;
                     }
-                    if (fixtureMode) {
-                        if (remaining.filter(candidate => $.CFEqual(candidate, controls.window)).length !== 1) fail(65);
-                    } else if (remaining.length !== 1) fail(65);
-                    const observed = inspect(fixtureMode ? controls.window : remaining[0]);
-                    if (!observed.text.some(value => value.indexOf(input.marker) !== -1)) fail(67);
-                    if (observed.users.length !== 1 || text(observed.users[0], 'AXValue') !== input.name) fail(79);
-                    if (observed.text.some(value => /wrong password|incorrect password|try again|authentication failed/i.test(value))) fail(80);
                     delay(0.05);
                 }
                 fail(75);
             }
             delay(0.05);
+        }
+        if (!fixtureMode && input.allowNoPrompt && !everValidatedTarget && cancellationContext === null) {
+            input.password = '';
+            if (boundWindows(Date.now() + 200).length === 0) {
+                $.NSFileHandle.fileHandleWithStandardOutput.writeData($('N1\nE4:69\n').dataUsingEncoding($.NSUTF8StringEncoding));
+                $.exit(69);
+            }
         }
         fail(69);
     } catch (error) {

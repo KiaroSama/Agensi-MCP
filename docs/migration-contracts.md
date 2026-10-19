@@ -184,7 +184,15 @@ do not prove erasure of every ambient-session credential cache. No unrelated cac
 Repeated removal first reads the same securely parsed certificate's administrative trust settings.
 Only an explicit native absent-status plus fresh absence readback bypasses a new account/prompt;
 existing account recovery still runs. A successful empty settings array means present trust, not absence,
-and retains the genuine removal path. Final absence readbacks do not make concurrent writes atomic.
+and retains the genuine removal path. Native removal may also complete without fresh interaction.
+Only removal opts into a dedicated terminal no-validated-target frame: no validated target/input,
+a fresh live identity-bound typed zero-window read and the exact N1/E4:69 tail with exit69. A separate
+200ms classification attempt follows discovery without extending input; existing owner bounds remain.
+Native operation completion, all retained certificates' fresh absence and account cleanup are still
+required. This is not new authentication proof; generic errors and selftests never use this exception.
+After production submission only, an invalid AX reference permits one fresh bound zero-window read
+within the original deadline; missing processes, other windows and other errors cannot become success.
+No target rebinding or input replay occurs. Final absence readbacks do not make concurrent writes atomic.
 Actual hosted results must prove this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
 cleanup. Account failures expose only fixed operation labels
 and numeric native status, never credential payloads. Only sanitized helper logs are handed back to

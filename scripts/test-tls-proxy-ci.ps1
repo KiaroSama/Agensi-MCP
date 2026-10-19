@@ -335,7 +335,7 @@ if ($Action -eq 'Run') {
     if ($IsMacOS) {
         $helper = Assert-OwnedPath (Join-Path $root '.tmp/mac-trust-fixture')
         Write-CiLog INFO 'Compiling native trust fixture before bounded audit execution.'
-        $null = Invoke-Bounded '/usr/bin/xcrun' @('swiftc','-O','-framework','Security','-framework','OpenDirectory','-framework','AppKit',(Join-Path $PSScriptRoot 'MacTrustFixture.swift'),(Join-Path $PSScriptRoot 'MacAuthorizationEvidence.swift'),'-o',$helper) 60
+        $null = Invoke-Bounded '/usr/bin/xcrun' @('swiftc','-O','-framework','Security','-framework','OpenDirectory','-framework','AppKit',(Join-Path $PSScriptRoot 'MacTrustFixture.swift'),(Join-Path $PSScriptRoot 'MacPromptLifecycle.swift'),(Join-Path $PSScriptRoot 'MacAuthorizationEvidence.swift'),'-o',$helper) 60
     }
     try {
         if ($IsWindows) {
