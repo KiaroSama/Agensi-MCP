@@ -189,7 +189,12 @@ function Get-OwnedFirewallRule($Record) {
         (-not $legacy -and ($Record.display -ne $true -or -not $Record.program))) { throw 'Invalid owned rule identity.' }
     $query = @{ PolicyStore = 'PersistentStore'; ErrorAction = 'Stop' }
     if ($legacy) { $query.Name = $name } else { $query.DisplayName = $name }
-    try { $matches = @(Get-NetFirewallRule @query) } catch {
+    $queryTimer = [Diagnostics.Stopwatch]::StartNew()
+    Write-CiLog INFO 'Firewall query stage=persistent-rule begin'
+    try {
+        $matches = @(Get-NetFirewallRule @query)
+        Write-CiLog INFO "Firewall query stage=persistent-rule end elapsed_ms=$($queryTimer.ElapsedMilliseconds)"
+    } catch {
         if (Test-OwnedFirewallAbsent $_ $(if ($legacy) { 'Name' } else { 'DisplayName' })) { return }
         throw
     }
@@ -201,7 +206,11 @@ function Get-OwnedFirewallRule($Record) {
         }
         if (-not $legacy) {
             $program = Assert-OwnedPath $Record.program
-            if ((Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program -cne $program) {
+            $queryTimer.Restart()
+            Write-CiLog INFO 'Firewall query stage=persistent-program begin'
+            $observedProgram = (Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program
+            Write-CiLog INFO "Firewall query stage=persistent-program end elapsed_ms=$($queryTimer.ElapsedMilliseconds)"
+            if ($observedProgram -cne $program) {
                 throw 'Owned firewall program differs.'
             }
         }
@@ -442,15 +451,22 @@ try {
             Write-CiLog INFO 'Protect stage=windows-firewall-query'
             $persisted = Get-OwnedFirewallRule $record
             if (-not $persisted) { throw 'Created owned firewall rule is absent.' }
+            $queryTimer = [Diagnostics.Stopwatch]::StartNew()
+            Write-CiLog INFO 'Firewall query stage=active-rule begin'
             $effective = @(Get-NetFirewallRule -PolicyStore ActiveStore -Name $persisted.Name -ErrorAction Stop)
+            Write-CiLog INFO "Firewall query stage=active-rule end elapsed_ms=$($queryTimer.ElapsedMilliseconds)"
             if ($effective.Count -ne 1 -or $effective[0].Name -cne $persisted.Name -or $effective[0].DisplayName -cne $name) {
                 throw 'Effective owned firewall identity differs.'
             }
             $rule = $effective[0]
+            $queryTimer.Restart()
             Write-CiLog INFO 'Protect stage=windows-firewall-address-filter'
             $observedRanges = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule).RemoteAddress)
+            Write-CiLog INFO "Firewall query stage=active-address end elapsed_ms=$($queryTimer.ElapsedMilliseconds)"
+            $queryTimer.Restart()
             Write-CiLog INFO 'Protect stage=windows-firewall-program-filter'
             $observedProgram = (Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program
+            Write-CiLog INFO "Firewall query stage=active-program end elapsed_ms=$($queryTimer.ElapsedMilliseconds)"
             if ($rule.Action -ne 'Block' -or $rule.Direction -ne 'Outbound' -or $rule.Enabled -ne 'True' -or
                 $rule.Profile.ToString() -cne 'Any' -or $observedProgram -cne $Binary -or
                 @(Compare-Object ($ranges | Sort-Object) ($observedRanges | Sort-Object)).Count) { throw 'Exact copied CLI firewall restriction was not applied.' }

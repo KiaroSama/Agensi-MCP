@@ -1,10 +1,13 @@
 ObjC.import('Foundation');
 ObjC.import('stdlib');
 ObjC.import('ApplicationServices');
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($('P3\n').dataUsingEncoding($.NSUTF8StringEncoding));
 ObjC.import('AppKit');
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($('P4\n').dataUsingEncoding($.NSUTF8StringEncoding));
 ObjC.import('Carbon');
 ObjC.bindFunction('CFRelease', ['void', ['void *']]);
 ObjC.bindFunction('getppid', ['int', []]);
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($('P5\n').dataUsingEncoding($.NSUTF8StringEncoding));
 
 return function nativeInputWorker(fixtureMode, channel) {
 let fixtureMarker = null;
@@ -535,6 +538,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
 }
 function run() {
     try {
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P6\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const input = channel.readInput();
         if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'allowNoPrompt,cancelOnly,marker,name,password') ||
             (!fixtureMode && (typeof input.cancelOnly !== 'boolean' || typeof input.allowNoPrompt !== 'boolean' ||
@@ -553,12 +557,15 @@ function run() {
             agentApplication = parent;
             fixtureMarker = input.marker;
         }
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P7\n').dataUsingEncoding($.NSUTF8StringEncoding));
         stage = 2;
         if (!$.AXIsProcessTrusted()) fail(65);
         ObjC.bindFunction('CGPreflightPostEventAccess', ['bool', []]);
         if (!$.CGPreflightPostEventAccess()) fail(84);
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P8\n').dataUsingEncoding($.NSUTF8StringEncoding));
         stage = 3;
         if (!fixtureMode && agentWindows().length !== 0) fail(65);
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P9\n').dataUsingEncoding($.NSUTF8StringEncoding));
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;

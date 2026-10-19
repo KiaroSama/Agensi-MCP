@@ -3,6 +3,53 @@ import Darwin
 import Foundation
 import Security
 
+struct ReadinessFrames {
+    private(set) var phase = 0
+    private(set) var ready = false
+    private(set) var failure = false
+    private var count = 0
+    private var pending = Data()
+
+    mutating func consume(_ byte: UInt8) throws -> Bool {
+        count += 1
+        guard count <= 64, !ready, !failure else { throw FixtureFailure(stage: "prompt-readiness-protocol") }
+        pending.append(byte)
+        guard pending.count <= 16 else { throw FixtureFailure(stage: "prompt-readiness-protocol") }
+        guard byte == 10 else { return false }
+        guard let line = String(data: pending.dropLast(), encoding: .utf8) else {
+            throw FixtureFailure(stage: "prompt-readiness-protocol")
+        }
+        pending.removeAll(keepingCapacity: true)
+        if line == "P" + String(phase + 1), phase < 9 { phase += 1; return true }
+        if line == "R", phase == 9 { ready = true; return false }
+        if line.range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
+            failure = true
+            return false
+        }
+        throw FixtureFailure(stage: "prompt-readiness-protocol")
+    }
+}
+
+func checkReadinessFrames() throws {
+    let prefix = (1...9).map { "P" + String($0) + "\n" }.joined()
+    var positive = ReadinessFrames()
+    for byte in Data((prefix + "R\n").utf8) { _ = try positive.consume(byte) }
+    guard positive.ready, positive.phase == 9 else { throw FixtureFailure(stage: "prompt-readiness-selftest") }
+    var partial = ReadinessFrames()
+    for byte in Data("P1\nP2".utf8) { _ = try partial.consume(byte) }
+    guard !partial.ready, partial.phase == 1 else { throw FixtureFailure(stage: "prompt-readiness-selftest") }
+    for value in ["P1\nP1\n", "P2\n", "R\n", "P1\nR\n", "E0:1\n", "E1:x\n", "X\n", String(repeating: "x", count: 17)] {
+        var frames = ReadinessFrames()
+        do {
+            for byte in Data(value.utf8) { _ = try frames.consume(byte) }
+        } catch { continue }
+        throw FixtureFailure(stage: "prompt-readiness-negative")
+    }
+    var failed = ReadinessFrames()
+    for byte in Data("P1\nE1:64\n".utf8) { _ = try failed.consume(byte) }
+    guard failed.failure && !failed.ready else { throw FixtureFailure(stage: "prompt-readiness-selftest") }
+}
+
 func protectPromptWriter(_ handle: FileHandle) throws {
     guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1,
           fcntl(handle.fileDescriptor, F_GETNOSIGPIPE) == 1 else {
@@ -65,6 +112,7 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
 }
 
 func checkPromptFrames() throws {
+    try checkReadinessFrames()
     try checkPromptWriter()
     guard cooperativeCompletionAllowed(mode: true, sent: true, channelError: false, nativeError: false,
         normalExit: true, status: 0) else { throw FixtureFailure(stage: "prompt-mode-selftest") }
@@ -159,23 +207,29 @@ extension Fixture {
         framed.append(payload)
         try input.fileHandleForWriting.write(contentsOf: framed)
         if !allowNoPrompt { try input.fileHandleForWriting.close() }
+        let readyStart = ProcessInfo.processInfo.systemUptime
         let readyDeadline = Date().addingTimeInterval(2)
-        var handshake = Data()
-        while handshake.count < 32 && !handshake.contains(10) {
-            let remaining = max(0, Int32(readyDeadline.timeIntervalSinceNow * 1000))
-            var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-            guard remaining > 0, poll(&ready, 1, remaining) == 1 else {
-                throw FixtureFailure(stage: "prompt-readiness-timeout")
+        var readiness = ReadinessFrames()
+        do {
+            while !readiness.ready && !readiness.failure {
+                let remaining = max(0, Int32(readyDeadline.timeIntervalSinceNow * 1000))
+                var ready = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+                guard remaining > 0, poll(&ready, 1, remaining) == 1 else {
+                    throw FixtureFailure(stage: "prompt-readiness-timeout")
+                }
+                guard let byte = try output.fileHandleForReading.read(upToCount: 1), let value = byte.first else {
+                    throw FixtureFailure(stage: "prompt-readiness-protocol")
+                }
+                if try readiness.consume(value) {
+                    let elapsed = Int((ProcessInfo.processInfo.systemUptime - readyStart) * 1000)
+                    event("INFO", "Owned readiness phase=" + String(readiness.phase) + " elapsed_ms=" + String(elapsed))
+                }
             }
-            guard let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty else { break }
-            handshake.append(byte)
-        }
-        guard handshake == Data([82, 10]) else {
-            if let text = String(data: handshake, encoding: .utf8),
-               text.trimmingCharacters(in: .newlines).range(of: "^E[1-4]:-?[0-9]{1,7}$", options: .regularExpression) != nil {
-                throw FixtureFailure(stage: "prompt-readiness-" + text.trimmingCharacters(in: .newlines))
-            }
-            throw FixtureFailure(stage: "prompt-readiness-protocol")
+            guard readiness.ready else { throw FixtureFailure(stage: "prompt-readiness-worker") }
+        } catch {
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - readyStart) * 1000)
+            event("ERROR", "Owned readiness stopped phase=" + String(readiness.phase) + " elapsed_ms=" + String(elapsed))
+            throw error
         }
         event("INFO", "Owned prompt worker ready with existing consent; exact native operation starting.")
         var operationError: Error?

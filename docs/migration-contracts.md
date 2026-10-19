@@ -154,6 +154,12 @@ The existing active-window and post-Tab focus waits retry only their known incom
 within the same absolute deadline. They never replay a username write, navigation, password event or
 submission. Only the post-Tab read-only wait opts into incomplete batch snapshots; other batch callers
 and all per-key failures retain their existing rejection.
+Readiness diagnostics contain only ordered fixed P1–P9 boundaries before the original R handshake:
+entry, channel load, framework imports, bindings, input validation, consent and baseline. The parent
+records elapsed uptime since its existing readiness wait, without resetting that absolute deadline.
+Missing phases locate an unfinished boundary, not its cause; phase completion is not native success.
+Windows records fixed begin/end timings around the existing persistent/effective rule and filter queries,
+without extra queries or policy changes. No credential, path, raw UI or native error payload is emitted.
 Input delivery or a closed window is not proof of authorization; the native result is still required.
 The hosted native selftest additionally owns a bounded INFO-level authd log stream. It correlates only
 an exact executable path, caller PID and requested right to one engine before emitting fixed outcome

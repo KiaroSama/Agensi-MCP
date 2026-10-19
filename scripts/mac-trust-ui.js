@@ -1,3 +1,4 @@
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($('P1\n').dataUsingEncoding($.NSUTF8StringEncoding));
 ObjC.import('Foundation');
 ObjC.import('stdlib');
 function run() {
@@ -12,5 +13,6 @@ function run() {
         return Function(String(ObjC.unwrap(source)))();
     }
     const channel = load('mac-input-channel.js')();
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P2\n').dataUsingEncoding($.NSUTF8StringEncoding));
     load('mac-input-core.js')(false, channel);
 }
