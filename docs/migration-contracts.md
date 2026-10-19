@@ -98,7 +98,12 @@ Cleanup removes only the captured owned rule and verifies absence; legacy journa
 original ID lookup. Only the exact property-specific native query-not-found identifier and category
 mean absence; missing commands/providers and other errors fail closed. Synthetic classifier controls
 run before mutation. A successful creator exit alone is not effective-policy proof or a speed guarantee.
-No profile is enabled or changed by this prerequisite. Windows native actions share one audit-owned
+No profile is enabled or changed by this prerequisite. If a short-lived native child's birth-time
+metadata becomes unavailable, the owner waits at most 100ms for that same process to exit before
+requiring its live recovery identity. Confirmed exit continues through the original output and exit-code
+checks; an unconfirmed exit rethrows the metadata error. This additive metadata wait precedes the
+inner action stopwatch and remains under the outer owners; it never fabricates a timestamp or retries.
+Windows native actions share one audit-owned
 PowerShell session instead of paying repeated cold NetSecurity initialization. Its private framed
 stdio accepts only the existing validation/protection/trust/removal actions with exact schema and
 sequence checks; effective-policy and associated-filter observations remain fresh. An explicit
@@ -191,7 +196,10 @@ this is a measured budget correction, not an optimization or a guarantee that ev
 there is no extra worker, warmup, retry, early readiness or promise of a full input interval after it.
 Missing phases locate an unfinished boundary, not its cause; phase completion is not native success.
 Windows records fixed begin/end timings around the existing persistent/effective rule and filter queries,
-without extra queries or policy changes. No credential, path, raw UI or native error payload is emitted.
+without extra queries or policy changes. Literal missing-application focus rejection uses code109,
+separate from generic code87, without another lookup or input retry. Numeric native exceptions can
+still share a code; this is a local discriminator, not absolute provenance or a success waiver.
+No credential, path, raw UI or native error payload is emitted.
 Input delivery or a closed window is not proof of authorization; the native result is still required.
 The hosted native selftest additionally owns a bounded INFO-level authd log stream. It correlates only
 an exact executable path, caller PID and requested right to one engine before emitting fixed outcome

@@ -42,6 +42,20 @@ function Assert-OwnedPath([string]$Path) {
     }
     return $full
 }
+function Test-MetadataExit($Process) { return $Process.WaitForExit(100) }
+foreach ($outcome in @($true, $false, 'throw')) {
+    $probe = [pscustomobject]@{ Outcome = $outcome; Milliseconds = 0 }
+    $probe | Add-Member ScriptMethod WaitForExit {
+        param($Milliseconds)
+        $this.Milliseconds = $Milliseconds
+        if ('throw' -ceq $this.Outcome) { throw 'Synthetic metadata wait error.' }
+        return $this.Outcome
+    }
+    $failed = $false
+    try { $observed = Test-MetadataExit $probe } catch { $failed = $true }
+    if ($probe.Milliseconds -ne 100 -or $failed -ne ('throw' -ceq $outcome) -or
+        (-not $failed -and $observed -ne $outcome)) { throw 'Metadata exit policy control failed.' }
+}
 function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 10, [switch]$Isolated, [switch]$InvocationOwner) {
     $process = [Diagnostics.Process]::new()
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -83,7 +97,7 @@ function Invoke-Bounded([string]$Program, [string[]]$Arguments, [int]$Seconds = 
                 $processRecord = Join-Path $state ($recordPrefix + $process.Id + '.json')
                 [IO.File]::WriteAllText($processRecord, (ConvertTo-Json @{ pid = $process.Id; started = $startedAt }), $utf8)
             } catch {
-                if (-not $process.HasExited) { throw }
+                if (-not (Test-MetadataExit $process)) { throw }
             }
         }
         $process.StandardInput.Close()

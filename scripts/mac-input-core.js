@@ -333,7 +333,7 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
         const keyboard = usKeyboard();
         if (!keyboard) { focusFailure = 86; return false; }
         const app = agentElement();
-        if (app === null) { focusFailure = 87; return false; }
+        if (app === null) { focusFailure = 109; return false; }
         const attributes = focusAttributes(app, pendingAllowed);
         const windows = attributes.objectAtIndex(0);
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
@@ -469,7 +469,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
             if (!error.snapshotPending) throw error;
         }
         if (!fixtureMode) {
-            if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].indexOf(focusFailure) !== -1) focusSeen |= 1;
+            if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 109].indexOf(focusFailure) !== -1) focusSeen |= 1;
             if (focusFailure === 89) focusSeen |= 2;
             if (focusFailure === 90) {
                 focusSeen |= 4;
