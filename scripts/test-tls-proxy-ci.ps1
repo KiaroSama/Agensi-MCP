@@ -153,6 +153,61 @@ function Invoke-MacTrustFixture([string]$Mode, [string[]]$Certificates = @()) {
         if ([IO.File]::Exists($invocation)) { [IO.File]::Delete($invocation) }
     }
 }
+function Test-OwnedFirewallAbsent([Management.Automation.ErrorRecord]$Record, [string]$Property) {
+    return $Property -cin @('Name','DisplayName') -and
+        $Record.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ObjectNotFound -and
+        ($Record.FullyQualifiedErrorId -split ',',2)[0] -ceq ('CmdletizationQuery_NotFound_' + $Property)
+}
+function Assert-FirewallAbsenceClassifier {
+    foreach ($property in @('Name','DisplayName')) {
+        $id = 'CmdletizationQuery_NotFound_' + $property
+        foreach ($suffix in @('',',Synthetic.Invocation')) {
+            $record = [Management.Automation.ErrorRecord]::new([Exception]::new('Synthetic query'), $id + $suffix,
+                [Management.Automation.ErrorCategory]::ObjectNotFound, $null)
+            if (-not (Test-OwnedFirewallAbsent $record $property)) { throw 'Firewall absence positive control failed.' }
+        }
+        foreach ($case in @(
+            @('CommandNotFoundException','ObjectNotFound'), @('MiClientApiError_NotFound','ObjectNotFound'),
+            @('CmdletizationQuery_NotFound_Unknown','ObjectNotFound'), @(($id + '_extra'),'ObjectNotFound'),
+            @($id,'PermissionDenied'), @('','ObjectNotFound')
+        )) {
+            $record = [Management.Automation.ErrorRecord]::new([Exception]::new('Synthetic error'), $case[0],
+                [Management.Automation.ErrorCategory]$case[1], $null)
+            if (Test-OwnedFirewallAbsent $record $property) { throw 'Firewall absence negative control failed.' }
+        }
+        $wrong = if ($property -ceq 'Name') { 'DisplayName' } else { 'Name' }
+        if (Test-OwnedFirewallAbsent ([Management.Automation.ErrorRecord]::new([Exception]::new('Synthetic selector'),
+            $id, [Management.Automation.ErrorCategory]::ObjectNotFound, $null)) $wrong) {
+            throw 'Firewall absence selector control failed.'
+        }
+    }
+}
+function Get-OwnedFirewallRule($Record) {
+    $legacy = $Record -is [string]
+    $name = if ($legacy) { $Record } else { $Record.name }
+    if ($name -cnotmatch '^AgensiTlsFixture-[0-9a-f]{32}$' -or
+        (-not $legacy -and ($Record.display -ne $true -or -not $Record.program))) { throw 'Invalid owned rule identity.' }
+    $query = @{ PolicyStore = 'PersistentStore'; ErrorAction = 'Stop' }
+    if ($legacy) { $query.Name = $name } else { $query.DisplayName = $name }
+    try { $matches = @(Get-NetFirewallRule @query) } catch {
+        if (Test-OwnedFirewallAbsent $_ $(if ($legacy) { 'Name' } else { 'DisplayName' })) { return }
+        throw
+    }
+    if ($matches.Count -gt 1) { throw 'Ambiguous owned firewall rule.' }
+    if ($matches.Count) {
+        $rule = $matches[0]
+        if (($legacy -and $rule.Name -cne $name) -or (-not $legacy -and $rule.DisplayName -cne $name)) {
+            throw 'Owned firewall label differs.'
+        }
+        if (-not $legacy) {
+            $program = Assert-OwnedPath $Record.program
+            if ((Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program -cne $program) {
+                throw 'Owned firewall program differs.'
+            }
+        }
+        return $rule
+    }
+}
 function Remove-CaseState {
     $cleanupStage = 'ledger'
     $ledger = Read-Ledger
@@ -196,13 +251,13 @@ function Remove-CaseState {
             if ($IsWindows) {
                 $cleanupStage = 'windows-firewall-find'
                 Write-CiLog INFO "Cleanup stage=$cleanupStage"
-                $ownedRule = Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue
+                $ownedRule = Get-OwnedFirewallRule $rule
                 $cleanupStage = 'windows-firewall-remove'
                 Write-CiLog INFO "Cleanup stage=$cleanupStage"
                 if ($ownedRule) { $ownedRule | Remove-NetFirewallRule -ErrorAction Stop }
                 $cleanupStage = 'windows-firewall-verify-absent'
                 Write-CiLog INFO "Cleanup stage=$cleanupStage"
-                if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { throw 'Owned rule remains.' }
+                if (Get-OwnedFirewallRule $rule) { throw 'Owned rule remains.' }
                 Write-CiLog INFO 'Cleanup stage=windows-firewall-complete'
             }
         } catch { $failed = $true; Write-CiLog ERROR "Owned firewall cleanup failed stage=$cleanupStage; no success claimed." }
@@ -272,6 +327,7 @@ trap {
     exit 1
 }
 Assert-Hosted
+if ($IsWindows) { Assert-FirewallAbsenceClassifier }
 if ($Action -eq 'Run') {
     $state = Join-Path $root ('.tmp/tls-ci-' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($state) | Out-Null
@@ -375,19 +431,28 @@ try {
         if ($IsWindows) {
             $name = 'AgensiTlsFixture-' + [Guid]::NewGuid().ToString('N')
             $ledger = Read-Ledger
-            $ledger.rules += $name
+            $record = @{ name = $name; display = $true; program = $Binary }
+            $ledger.rules += $record
             Save-Ledger $ledger
             $ranges = @('0.0.0.0-126.255.255.255','128.0.0.0-255.255.255.255','::','::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
+            $netsh = Join-Path $env:SYSTEMROOT 'System32/netsh.exe'
+            if (-not [IO.File]::Exists($netsh)) { throw 'Native firewall tool is unavailable.' }
             Write-CiLog INFO 'Protect stage=windows-firewall-create'
-            New-NetFirewallRule -Name $name -DisplayName $name -Direction Outbound -Action Block -Program $Binary -RemoteAddress $ranges -Profile Any -Enabled True | Out-Null
+            $null = Invoke-Bounded $netsh @('advfirewall','firewall','add','rule',"name=$name",'dir=out','action=block',"program=$Binary",("remoteip=" + ($ranges -join ',')),'profile=any','enable=yes')
             Write-CiLog INFO 'Protect stage=windows-firewall-query'
-            $rule = Get-NetFirewallRule -Name $name
+            $persisted = Get-OwnedFirewallRule $record
+            if (-not $persisted) { throw 'Created owned firewall rule is absent.' }
+            $effective = @(Get-NetFirewallRule -PolicyStore ActiveStore -Name $persisted.Name -ErrorAction Stop)
+            if ($effective.Count -ne 1 -or $effective[0].Name -cne $persisted.Name -or $effective[0].DisplayName -cne $name) {
+                throw 'Effective owned firewall identity differs.'
+            }
+            $rule = $effective[0]
             Write-CiLog INFO 'Protect stage=windows-firewall-address-filter'
             $observedRanges = @((Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule).RemoteAddress)
             Write-CiLog INFO 'Protect stage=windows-firewall-program-filter'
             $observedProgram = (Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule).Program
             if ($rule.Action -ne 'Block' -or $rule.Direction -ne 'Outbound' -or $rule.Enabled -ne 'True' -or
-                $observedProgram -ne $Binary -or
+                $rule.Profile.ToString() -cne 'Any' -or $observedProgram -cne $Binary -or
                 @(Compare-Object ($ranges | Sort-Object) ($observedRanges | Sort-Object)).Count) { throw 'Exact copied CLI firewall restriction was not applied.' }
             Write-CiLog INFO 'Protect stage=windows-firewall-complete'
         }

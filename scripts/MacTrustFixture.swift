@@ -563,7 +563,7 @@ final class Fixture {
             guard status == errAuthorizationCanceled else { throw FixtureFailure(stage: "authorization-cancel-result") }
         } else { try Self.check(status, "authorization-native-prompt") }
     }
-    func removeTrust(path: String) throws {
+    func certificate(path: String) throws -> SecCertificate {
         let url = URL(fileURLWithPath: path).standardizedFileURL
         guard url.deletingLastPathComponent() == state,
               url.resolvingSymlinksInPath() == url else { throw FixtureFailure(stage: "certificate-path") }
@@ -582,6 +582,17 @@ final class Fixture {
         guard let der = Data(base64Encoded: body), let certificate = SecCertificateCreateWithData(nil, der as CFData) else {
             throw FixtureFailure(stage: "certificate-decode")
         }
+        return certificate
+    }
+    func trustPresent(_ certificate: SecCertificate) throws -> Bool {
+        var settings: CFArray?
+        let status = SecTrustSettingsCopyTrustSettings(certificate, .admin, &settings)
+        if status == errSecItemNotFound || status == errSecNoTrustSettings { return false }
+        try Self.check(status, "trust-presence")
+        guard settings != nil else { throw FixtureFailure(stage: "trust-presence-value") }
+        return true
+    }
+    func removeTrust(_ certificate: SecCertificate) throws {
         let removal = SecTrustSettingsRemoveTrustSettings(certificate, .admin)
         guard removal == errSecSuccess || removal == errSecItemNotFound || removal == errSecNoTrustSettings else {
             throw FixtureFailure(stage: "trust-remove:" + String(removal))
@@ -598,6 +609,20 @@ final class Fixture {
         guard ((action == "selftest" || action == "cancel-selftest") && paths.isEmpty) || (action == "input-selftest" && paths.isEmpty) ||
               (action == "remove" && !paths.isEmpty && paths.count <= 8) else {
             throw FixtureFailure(stage: "arguments")
+        }
+        var certificates: [SecCertificate] = []
+        var pending: [SecCertificate] = []
+        if action == "remove" {
+            try recover()
+            certificates = try paths.map { try certificate(path: $0) }
+            for certificate in certificates {
+                if try trustPresent(certificate) { pending.append(certificate) }
+                else if try trustPresent(certificate) { throw FixtureFailure(stage: "trust-absence-changed") }
+            }
+            if pending.isEmpty {
+                event("INFO", "Exact owned administrative trust already absent; no authorization requested.")
+                return
+            }
         }
         var session: SecuritySessionId = 0
         var attributes = SessionAttributeBits(rawValue: 0)
@@ -634,7 +659,10 @@ final class Fixture {
                 }
                 throw FixtureFailure(stage: "controlled-restoration")
             } else {
-                for path in paths { try withPrompt(identity, password: password) { try removeTrust(path: path) } }
+                for certificate in pending { try withPrompt(identity, password: password) { try removeTrust(certificate) } }
+                for certificate in certificates {
+                    if try trustPresent(certificate) { throw FixtureFailure(stage: "trust-final-absence") }
+                }
             }
         } catch { operationError = error }
         try recover()

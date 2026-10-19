@@ -91,7 +91,14 @@ require the complete non-diagnostic workflow.
 The wrapper permits temporary fixture trust, name mapping and network restrictions only on disposable
 GitHub-hosted runners, then removes its owned changes. Windows verifies all firewall profiles are
 enabled once before the isolated audit; each copied CLI still requires its own effective rule,
-program and address readbacks. No profile is enabled or changed by this prerequisite.
+program and address readbacks. The bounded native Windows creator journals an exact unique display
+label and program before creation; persistent identity is resolved once, then its exact rule ID is
+verified in ActiveStore with the same label, program, addresses, direction, action and enabled profiles.
+Cleanup removes only the captured owned rule and verifies absence; legacy journal names retain their
+original ID lookup. Only the exact property-specific native query-not-found identifier and category
+mean absence; missing commands/providers and other errors fail closed. Synthetic classifier controls
+run before mutation. A successful creator exit alone is not effective-policy proof or a speed guarantee.
+No profile is enabled or changed by this prerequisite.
 No workstation trust/network settings or real
 proxy/account traffic are involved. Ordinary four-platform TLS unit tests are not a substitute for
 these actual CLI proxy/origin observations or successful cleanup. macOS rejects changes to its
@@ -174,6 +181,10 @@ accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fa
 fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact
 account/membership removal is checked, including error recovery. These owned-reference/account checks
 do not prove erasure of every ambient-session credential cache. No unrelated cache is purged.
+Repeated removal first reads the same securely parsed certificate's administrative trust settings.
+Only an explicit native absent-status plus fresh absence readback bypasses a new account/prompt;
+existing account recovery still runs. A successful empty settings array means present trust, not absence,
+and retains the genuine removal path. Final absence readbacks do not make concurrent writes atomic.
 Actual hosted results must prove this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
 cleanup. Account failures expose only fixed operation labels
 and numeric native status, never credential payloads. Only sanitized helper logs are handed back to

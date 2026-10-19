@@ -387,29 +387,31 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         } catch (error) {
             if (!error.snapshotPending) throw error;
         }
-        if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].indexOf(focusFailure) !== -1) focusSeen |= 1;
-        if (focusFailure === 89) focusSeen |= 2;
-        if (focusFailure === 90) {
-            focusSeen |= 4;
-            try {
-                const app = $.AXUIElementCreateApplication(agentPID);
-                if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
-                const element = attribute(app, 'AXFocusedUIElement');
-                if (!$.CFEqual(element, username)) {
-                    const role = text(element, 'AXRole');
-                    const subrole = text(element, 'AXSubrole', true);
-                    const owner = attribute(element, 'AXWindow', true);
-                    focusSnapshot = 1 |
-                        ($.CFEqual(attribute(app, 'AXFocusedWindow'), window) ? 2 : 0) |
-                        ($.CFEqual(element, secure) ? 4 : 0) |
-                        (role === 'AXTextField' ? 8 : 0) |
-                        (role === 'AXTextArea' ? 16 : 0) |
-                        (subrole === 'AXSecureTextField' ? 32 : 0) |
-                        (owner && $.CFEqual(owner, window) ? 64 : 0) |
-                        (owner ? 128 : 0) | (subrole ? 256 : 0);
+        if (!fixtureMode) {
+            if ([87, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].indexOf(focusFailure) !== -1) focusSeen |= 1;
+            if (focusFailure === 89) focusSeen |= 2;
+            if (focusFailure === 90) {
+                focusSeen |= 4;
+                try {
+                    const app = $.AXUIElementCreateApplication(agentPID);
+                    if (Number($.AXUIElementSetMessagingTimeout(app, 0.2)) !== 0) fail(66);
+                    const element = attribute(app, 'AXFocusedUIElement');
+                    if (!$.CFEqual(element, username)) {
+                        const role = text(element, 'AXRole');
+                        const subrole = text(element, 'AXSubrole', true);
+                        const owner = attribute(element, 'AXWindow', true);
+                        focusSnapshot = 1 |
+                            ($.CFEqual(attribute(app, 'AXFocusedWindow'), window) ? 2 : 0) |
+                            ($.CFEqual(element, secure) ? 4 : 0) |
+                            (role === 'AXTextField' ? 8 : 0) |
+                            (role === 'AXTextArea' ? 16 : 0) |
+                            (subrole === 'AXSecureTextField' ? 32 : 0) |
+                            (owner && $.CFEqual(owner, window) ? 64 : 0) |
+                            (owner ? 128 : 0) | (subrole ? 256 : 0);
+                    }
+                } catch (error) {
+                    if (!error.snapshotPending) throw error;
                 }
-            } catch (error) {
-                if (!error.snapshotPending) throw error;
             }
         }
         if (Date.now() >= deadline) fail(76);
