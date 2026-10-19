@@ -120,6 +120,13 @@ function clockMilliseconds() {
     return value;
 }
 function elapsed() { return (clockMilliseconds() - timing.start); }
+function finalVerificationEnd(inputDeadline, now, eligible) {
+    return eligible && now < inputDeadline + 200 ? inputDeadline + 200 : 0;
+}
+if (finalVerificationEnd(1000, 1000, true) !== 1200 ||
+    finalVerificationEnd(1000, 1199, true) !== 1200 ||
+    finalVerificationEnd(1000, 1200, true) !== 0 ||
+    finalVerificationEnd(1000, 1000, false) !== 0) fail(93);
 function emitTiming() {
     if (!timing || timingSent || (!fixtureMode && !everValidatedTarget)) return;
     timingSent = true;
@@ -613,6 +620,7 @@ function run() {
                 if (!focused(controls.window, controls.passwords[0], controls.nonces[0], input.marker, deadline)) fail(76);
                 let submitted = false;
                 try {
+                    if (Date.now() >= deadline) fail(85);
                     $.CGEventPostToPid(agentPID, down);
                     submitted = true;
                 } finally {
@@ -649,6 +657,12 @@ function run() {
                         return;
                     }
                     delay(0.05);
+                }
+                const verificationEnd = finalVerificationEnd(deadline, Date.now(), !fixtureMode && submitted);
+                if (verificationEnd && boundWindows(verificationEnd).length === 0) {
+                    emitTiming();
+                    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('E4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
+                    return;
                 }
                 fail(75);
             }

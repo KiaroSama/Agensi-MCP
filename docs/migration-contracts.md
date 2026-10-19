@@ -164,7 +164,14 @@ JavaScript intervals use wall-clock milliseconds without an explicit Objective-C
 and residual observation overhead limit timing conclusions. Swift independently records elapsed uptime.
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission
-closes the prompt. There is no accessibility-press fallback or repeated submission.
+closes the prompt. An immediate deadline check after the final focus guard rejects a late Return
+before posting it. There is no accessibility-press fallback or repeated submission. If production
+post-submit observation reaches the input deadline after that single submission, one final read-only
+verification may run before the fixed original input deadline plus 200ms. It still requires the exact
+retained live SecurityAgent identity and a fresh typed zero-window result; missing, changed, nonzero
+or failed observations remain errors. This is an explicit additional observation allowance, never a
+credential-input extension, retry or generic error waiver. Synchronous native calls can exceed the
+cooperative attempt; the unchanged seven-second worker and ten-second helper remain backstops.
 The existing active-window and post-Tab focus waits retry only their known incomplete read snapshots
 within the same absolute deadline. They never replay a username write, navigation, password event or
 submission. Only the post-Tab read-only wait opts into incomplete batch snapshots; other batch callers
