@@ -120,6 +120,11 @@ function clockMilliseconds() {
     return value;
 }
 function elapsed() { return (clockMilliseconds() - timing.start); }
+function inputDeadline(now) { return now + 5000; }
+const durationControl = inputDeadline(1000);
+if (durationControl !== 6000 || !(5999 < durationControl) || 6000 < durationControl ||
+    finalVerificationEnd(durationControl, 6199, true) !== 6200 ||
+    finalVerificationEnd(durationControl, 6200, true) !== 0) fail(93);
 function finalVerificationEnd(inputDeadline, now, eligible) {
     return eligible && now < inputDeadline + 200 ? inputDeadline + 200 : 0;
 }
@@ -576,7 +581,7 @@ function run() {
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('P9\n').dataUsingEncoding($.NSUTF8StringEncoding));
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
-        const deadline = Date.now() + 4000;
+        const deadline = inputDeadline(Date.now());
         timing = { start: clockMilliseconds(), secure: 9999, first: 9999,
             count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {

@@ -125,6 +125,19 @@ try {
         }
         if ($certificatePins.Count -ne 2 -or $certificatePins -cnotcontains $descriptor.leaf_sha256 -or $certificatePins -cnotcontains $descriptor.root_sha256) { throw 'Owned keychain must contain exactly the pinned leaf and public root certificates.' }
         Write-SigningLog INFO 'Signing stage=mac-certificate-chain-complete; exact_leaf_and_root_pins=2.'
+        $stage = 'mac-chain-policy-diagnostics'
+        $validIdentities = Invoke-SigningProcess /usr/bin/security @('find-identity','-v','-p','codesigning',$keychain) -Seconds 10 -AllowFailure
+        $validPins = @([regex]::Matches($validIdentities.Stdout, '(?im)^\s*\d+\)\s+([0-9a-f]{40})\s+') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } | Sort-Object -Unique)
+        $validCount = @($validPins | Where-Object { $_ -ceq $descriptor.leaf_sha1 }).Count
+        Write-SigningLog INFO ('Signing native-policy diagnostic=valid-identities; exit={0}; approved_count={1}.' -f $validIdentities.ExitCode, $validCount)
+        $leafPublicPath = Join-Path $script:SigningRoot 'signing/signer.pem'
+        $rootPublicPath = Join-Path $script:SigningRoot 'signing/root.pem'
+        foreach ($search in @('explicit-material','owned-keychain')) {
+            $arguments = @('verify-cert','-c',$leafPublicPath,'-r',$rootPublicPath,'-p','codeSign','-L','-q')
+            $arguments += if ($search -ceq 'explicit-material') { @('-N') } else { @('-k',$keychain) }
+            $evaluation = Invoke-SigningProcess /usr/bin/security $arguments -Seconds 10 -AllowFailure
+            Write-SigningLog INFO ('Signing native-policy diagnostic={0}; exit={1}.' -f $search, $evaluation.ExitCode)
+        }
         $stage = 'mac-codesign'
         Write-SigningLog INFO 'Signing stage=mac-codesign.'
         $native = Invoke-SigningProcess /usr/bin/codesign @('--force','--keychain',$keychain,'--sign',$descriptor.leaf_sha1,'--timestamp=none',$Path) -AllowFailure

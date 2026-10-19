@@ -114,7 +114,9 @@ final class InputFixture: NSObject {
         application.activate(ignoringOtherApps: true)
         guard ownedWindow.makeFirstResponder(username) else { throw FixtureFailure(stage: "input-fixture-focus") }
         focusState("initial", report: report)
-        let deadline = Date().addingTimeInterval(4)
+        let duration: TimeInterval = 5
+        guard duration * 1000 == 5000 else { throw FixtureFailure(stage: "input-fixture-duration") }
+        let deadline = Date().addingTimeInterval(duration)
         loopStart = ProcessInfo.processInfo.systemUptime
         var reportedExtraWindows = false
         while !submitted && Date() < deadline {

@@ -183,8 +183,12 @@ Measured Intel startup reached the first script boundary at 1518ms and completed
 at 1876ms, leaving insufficient time for legitimate consent preflight under the old two-second bound.
 Readiness now has three seconds from that same launch origin, including payload delivery; this explicitly
 supersedes the prior post-payload two-second window. The total worker remains seven seconds, input
-remains four seconds and the helper remains ten seconds. The worker owner wins any overlapping budget;
-there is no extra worker, warmup, retry, early readiness or promise of four additional seconds after it.
+now has five seconds and the helper remains ten seconds. The owned public receiver uses the same
+five-second duration from its own existing window-ready origin, not a shared cross-process clock.
+This explicitly supersedes the prior four-second input allocation after measured finite Intel
+work consumed 3889ms before the final three guards and submission. All fresh per-event guards remain;
+this is a measured budget correction, not an optimization or a guarantee that every runner fits. The worker owner wins any overlapping budget;
+there is no extra worker, warmup, retry, early readiness or promise of a full input interval after it.
 Missing phases locate an unfinished boundary, not its cause; phase completion is not native success.
 Windows records fixed begin/end timings around the existing persistent/effective rule and filter queries,
 without extra queries or policy changes. No credential, path, raw UI or native error payload is emitted.
@@ -353,6 +357,10 @@ macOS requires certificate-backed, non-ad-hoc codesign with an exact signer requ
 pinned RSA3072/SHA256/PKCS1 detached signatures. Only after acceptance does verification execute doctor
 to compare publisher KiaroSama, version and embedded source commit. Archive BUILD-INFO records agree.
 
+Before native macOS signing, bounded read-only diagnostics classify valid identities and evaluate
+public leaf/root material against an explicit anchor, both without keychain searching and with only
+the owned keychain. Fixed counts/exit codes are recorded, not raw native output. These controls install
+no trust and do not change signing acceptance; a private identity can lack default OS policy trust.
 This private self-signed CA is not public trust, Apple Developer ID/notarization or a trusted timestamp.
 OS warnings can remain. Never install a root certificate or disable OS protections merely to silence
 them. Expired certificates fail closed; no timestamp-based post-expiry assurance is claimed.
