@@ -24,6 +24,11 @@ let timingSent = false;
 let windowDiagnosticAttempted = false;
 let windowDiagnosticCode = 98;
 let cancellationContext = null;
+const arrayType = Number($.CFArrayGetTypeID());
+const stringType = Number($.CFStringGetTypeID());
+const axType = Number($.AXUIElementGetTypeID());
+if (![arrayType, stringType, axType].every(value => Number.isFinite(value) && value > 0) ||
+    arrayType === stringType || arrayType === axType || stringType === axType) fail(66);
 function cancelOwnedPrompt() {
     const context = cancellationContext;
     cancellationContext = null;
@@ -46,7 +51,7 @@ function cancelOwnedPrompt() {
         return ObjC.castRefToObject(value[0]);
     }
     function array(value) {
-        if (!value || Number($.CFGetTypeID(value)) !== Number($.CFArrayGetTypeID()) ||
+        if (!value || Number($.CFGetTypeID(value)) !== arrayType ||
             Number(value.count) > 160) throw new Error('cleanup-array');
         return value;
     }
@@ -65,7 +70,7 @@ function cancelOwnedPrompt() {
             throw new Error('cleanup-window');
         if (!$.CFEqual(read(context.nonce, 'AXWindow'), context.window)) throw new Error('cleanup-nonce-window');
         const nonce = read(context.nonce, 'AXValue');
-        if (!nonce || Number($.CFGetTypeID(nonce)) !== Number($.CFStringGetTypeID()) ||
+        if (!nonce || Number($.CFGetTypeID(nonce)) !== stringType ||
             String(ObjC.unwrap(nonce)).indexOf(context.input.marker) === -1)
             throw new Error('cleanup-nonce');
         return app;
@@ -73,7 +78,7 @@ function cancelOwnedPrompt() {
     try {
         boundApplication();
         const button = read(context.window, 'AXCancelButton');
-        if (!button || Number($.CFGetTypeID(button)) !== Number($.AXUIElementGetTypeID()) ||
+        if (!button || Number($.CFGetTypeID(button)) !== axType ||
             !$.CFEqual(read(button, 'AXWindow'), context.window) ||
             ObjC.unwrap(read(button, 'AXEnabled')) !== true) throw new Error('cleanup-button');
         prepare(button);
@@ -84,7 +89,7 @@ function cancelOwnedPrompt() {
         let press = false;
         for (let index = 0; index < Number(names.count); index++) {
             const name = names.objectAtIndex(index);
-            if (Number($.CFGetTypeID(name)) !== Number($.CFStringGetTypeID())) throw new Error('cleanup-action-type');
+            if (Number($.CFGetTypeID(name)) !== stringType) throw new Error('cleanup-action-type');
             if (String(ObjC.unwrap(name)) === 'AXPress') press = true;
         }
         if (!press) throw new Error('cleanup-action');
@@ -208,13 +213,13 @@ function boundWindows(deadline) {
     if (status !== 0) fail(status);
     if (Date.now() >= deadline) fail(91);
     const windows = ObjC.castRefToObject(value[0]);
-    if (!windows || Number($.CFGetTypeID(windows)) !== Number($.CFArrayGetTypeID())) fail(66);
+    if (!windows || Number($.CFGetTypeID(windows)) !== arrayType) fail(66);
     const count = Number(windows.count);
     if (!Number.isInteger(count) || count < 0 || count > 160) fail(66);
     const result = [];
     for (let index = 0; index < count; index++) {
         const window = windows.objectAtIndex(index);
-        if (Number($.CFGetTypeID(window)) !== Number($.AXUIElementGetTypeID())) fail(66);
+        if (Number($.CFGetTypeID(window)) !== axType) fail(66);
         result.push(window);
     }
     return result;
@@ -239,13 +244,13 @@ function focusAttributes(app, pendingAllowed) {
     if (status === -25204 && pendingAllowed) throw { snapshotPending: true };
     if (status !== 0) fail(status);
     const result = ObjC.castRefToObject(values[0]);
-    if (!result || Number($.CFGetTypeID(result)) !== Number($.CFArrayGetTypeID()) ||
+    if (!result || Number($.CFGetTypeID(result)) !== arrayType ||
         Number(result.count) !== 3) fail(66);
     const windows = result.objectAtIndex(0);
-    if (Number($.CFGetTypeID(windows)) !== Number($.CFArrayGetTypeID())) fail(66);
+    if (Number($.CFGetTypeID(windows)) !== arrayType) fail(66);
     const count = Number(windows.count);
     if (!Number.isInteger(count) || count < 0 || count > 160) fail(66);
-    const elementType = Number($.AXUIElementGetTypeID());
+    const elementType = axType;
     for (let index = 0; index < count; index++) {
         if (Number($.CFGetTypeID(windows.objectAtIndex(index))) !== elementType) fail(66);
     }
@@ -324,18 +329,18 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
             }
             if (matches !== 1) { focusFailure = 96; return false; }
             const owner = attribute(secure, 'AXWindow');
-            if (!owner || Number($.CFGetTypeID(owner)) !== Number($.AXUIElementGetTypeID())) fail(66);
+            if (!owner || Number($.CFGetTypeID(owner)) !== axType) fail(66);
             if (!$.CFEqual(owner, window)) { focusFailure = 96; return false; }
             const values = Ref();
             const status = Number($.AXUIElementCopyMultipleAttributeValues(nonce, $(['AXWindow', 'AXValue']), 1, values));
             if (status === -25204 && pendingAllowed) throw { snapshotPending: true };
             if (status !== 0) fail(status);
             const result = ObjC.castRefToObject(values[0]);
-            if (!result || Number($.CFGetTypeID(result)) !== Number($.CFArrayGetTypeID()) || Number(result.count) !== 2) fail(66);
+            if (!result || Number($.CFGetTypeID(result)) !== arrayType || Number(result.count) !== 2) fail(66);
             const nonceOwner = result.objectAtIndex(0);
             const value = result.objectAtIndex(1);
-            if (Number($.CFGetTypeID(nonceOwner)) !== Number($.AXUIElementGetTypeID()) ||
-                Number($.CFGetTypeID(value)) !== Number($.CFStringGetTypeID())) fail(66);
+            if (Number($.CFGetTypeID(nonceOwner)) !== axType ||
+                Number($.CFGetTypeID(value)) !== stringType) fail(66);
             if (!$.CFEqual(nonceOwner, window)) { focusFailure = 96; return false; }
             nonceValue = String(ObjC.unwrap(value));
         } else if (Number(windows.count) !== 1) {
@@ -353,11 +358,11 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
                     try {
                         if (Date.now() < deadline) {
                             const role = attribute(firstNonoriginal, 'AXRole');
-                            if (!role || Number($.CFGetTypeID(role)) !== Number($.CFStringGetTypeID())) fail(66);
+                            if (!role || Number($.CFGetTypeID(role)) !== stringType) fail(66);
                             if (String(ObjC.unwrap(role)) !== 'AXWindow') windowDiagnosticCode = 105;
                             else if (Date.now() < deadline) {
                                 const subrole = attribute(firstNonoriginal, 'AXSubrole', true);
-                                if (subrole !== null && Number($.CFGetTypeID(subrole)) !== Number($.CFStringGetTypeID())) fail(66);
+                                if (subrole !== null && Number($.CFGetTypeID(subrole)) !== stringType) fail(66);
                                 const name = subrole === null ? '' : String(ObjC.unwrap(subrole));
                                 const known = ['AXStandardWindow', 'AXFloatingWindow', 'AXDialog', 'AXSystemDialog'].indexOf(name);
                                 windowDiagnosticCode = known === -1 ? 104 : 100 + known;

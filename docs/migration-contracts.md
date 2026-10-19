@@ -137,7 +137,10 @@ the original live process because navigation changes focus. Secure-field focus m
 before any password event; there is no repeated navigation or AX-focus fallback. Before each password
 event it checks the exact window, secure-field focus and retained nonce element. Application window
 and focus attributes are read together through the native batch API with strict type/shape checks;
-no observation is cached, and batching does not promise an atomic snapshot. An unavailable focus
+no observation is cached, and batching does not promise an atomic snapshot. Opaque type identifiers
+are obtained once for each worker at runtime, never hardcoded or carried across platforms/releases;
+every live object's type is still checked on every guard. This avoids repeated constant getters,
+not current observations, and implies no measured speedup. An unavailable focus
 attribute fails closed even if the batch's window list would otherwise reject the prompt.
 Fixture-only timing retains aggregate focus-check count and duration and separately measures
 password-event construction, flag assignment and posting. Earlier window/focus component buckets
