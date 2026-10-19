@@ -6,7 +6,7 @@ ObjC.import('Carbon');
 ObjC.bindFunction('CFRelease', ['void', ['void *']]);
 ObjC.bindFunction('getppid', ['int', []]);
 
-return function nativeInputWorker(fixtureMode) {
+return function nativeInputWorker(fixtureMode, channel) {
 let fixtureMarker = null;
 let stage = 1;
 let agentPID = null;
@@ -218,6 +218,19 @@ function boundWindows(deadline) {
         result.push(window);
     }
     return result;
+}
+function completedWithoutInput(input, deadline) {
+    if (fixtureMode || !input.allowNoPrompt || everValidatedTarget || cancellationContext !== null) return;
+    if (!channel.completed()) return;
+    input.password = '';
+    if (Date.now() >= deadline) fail(91);
+    const agents = $.NSRunningApplication.runningApplicationsWithBundleIdentifier('com.apple.SecurityAgent');
+    const count = Number(agents.count);
+    if (count !== 0 && count !== 1) fail(65);
+    if (count === 1 && boundWindows(deadline).length !== 0) fail(65);
+    if (Date.now() >= deadline) fail(91);
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData($('N2\nE4:0\n').dataUsingEncoding($.NSUTF8StringEncoding));
+    $.exit(0);
 }
 function focusAttributes(app, pendingAllowed) {
     const values = Ref();
@@ -517,11 +530,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
 }
 function run() {
     try {
-        const data = $.NSFileHandle.fileHandleWithStandardInput.readDataOfLength(4097);
-        if (Number(data.length) > 4096) fail(64);
-        const decoded = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
-        if (!decoded) fail(64);
-        const input = JSON.parse(ObjC.unwrap(decoded));
+        const input = channel.readInput();
         if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'allowNoPrompt,cancelOnly,marker,name,password') ||
             (!fixtureMode && (typeof input.cancelOnly !== 'boolean' || typeof input.allowNoPrompt !== 'boolean' ||
                 (input.cancelOnly && input.allowNoPrompt))) ||
@@ -551,6 +560,7 @@ function run() {
         if (fixtureMode) timing = { start: clockMilliseconds(), secure: 9999, first: 9999,
             count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {
+            completedWithoutInput(input, deadline);
             let controls;
             let approve;
             try {
@@ -569,6 +579,7 @@ function run() {
                 approve = null;
             }
             if (controls && approve) {
+                completedWithoutInput(input, deadline);
                 everValidatedTarget = true;
                 if (!fixtureMode) {
                     if (!agentApplication.executableURL) fail(65);

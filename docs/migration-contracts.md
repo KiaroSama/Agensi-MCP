@@ -192,7 +192,23 @@ Native operation completion, all retained certificates' fresh absence and accoun
 required. This is not new authentication proof; generic errors and selftests never use this exception.
 After production submission only, an invalid AX reference permits one fresh bound zero-window read
 within the original deadline; missing processes, other windows and other errors cannot become success.
-No target rebinding or input replay occurs. Final absence readbacks do not make concurrent writes atomic.
+No target rebinding or input replay occurs. A separate cooperative removal-only outcome uses the
+owned stdin pipe: a four-ASCII-digit byte length precedes the bounded UTF-8 JSON payload; only removal
+retains the writer after readiness. Successful native removal and exact-certificate absence permit one
+completion byte followed by close. Before any validated target or input, the worker may consume that
+notice and refresh global target enumeration. Ambiguity fails; one matching process requires the same
+retained live identity and typed zero windows; zero matching processes means only that observation,
+not zero windows, process death or fresh authentication. Its exact N2/E4:0 result requires normal exit,
+confirmed error-free notice delivery, successful native operation and all-certificate/account cleanup.
+The older N1 route still requires its original live-process/zero-window proof. Once input is validated,
+notice delivery cannot waive any guard or failure. Notice/input observation is not atomic.
+Native zero-timeout poll gates the bounded completion read; waiting for its EOF is still bounded by
+the existing owner, not a guaranteed nonblocking read. Owned pipe writers use descriptor-only
+NOSIGPIPE with readback; a native closed-reader control must reject with EPIPE without crashing.
+Startup framing/protection failures always fail. Only independently successful ordinary input/native
+completion may warn about an unused optional notice-channel failure; N2 cannot. Same-parser boundary,
+malformed-frame, mode and poll controls run before the fixture. No global signal policy is changed.
+Final absence readbacks do not make concurrent writes atomic.
 Actual hosted results must prove this route; implementation is not a successful cleanup claim. Runner disposal is not explicit
 cleanup. Account failures expose only fixed operation labels
 and numeric native status, never credential payloads. Only sanitized helper logs are handed back to

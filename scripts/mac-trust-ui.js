@@ -3,10 +3,14 @@ ObjC.import('stdlib');
 function run() {
     const args = $.NSProcessInfo.processInfo.arguments;
     const entry = $(String(ObjC.unwrap(args.objectAtIndex(3)))).stringByStandardizingPath;
-    const core = entry.stringByDeletingLastPathComponent.stringByAppendingPathComponent('mac-input-core.js');
-    if (String(ObjC.unwrap(core.stringByResolvingSymlinksInPath)) !== String(ObjC.unwrap(core))) $.exit(64);
-    const error = Ref();
-    const source = $.NSString.stringWithContentsOfFileEncodingError(core, $.NSUTF8StringEncoding, error);
-    if (!source) $.exit(64);
-    Function(String(ObjC.unwrap(source)))()(false);
+    function load(name) {
+        const path = entry.stringByDeletingLastPathComponent.stringByAppendingPathComponent(name);
+        if (String(ObjC.unwrap(path.stringByResolvingSymlinksInPath)) !== String(ObjC.unwrap(path))) $.exit(64);
+        const error = Ref();
+        const source = $.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, error);
+        if (!source) $.exit(64);
+        return Function(String(ObjC.unwrap(source)))();
+    }
+    const channel = load('mac-input-channel.js')();
+    load('mac-input-core.js')(false, channel);
 }

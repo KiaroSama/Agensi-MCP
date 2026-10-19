@@ -3,12 +3,35 @@ import Darwin
 import Foundation
 import Security
 
-func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String, cancellation: String, noPrompt: Bool) {
+func protectPromptWriter(_ handle: FileHandle) throws {
+    guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1,
+          fcntl(handle.fileDescriptor, F_GETNOSIGPIPE) == 1 else {
+        throw FixtureFailure(stage: "prompt-writer-protection")
+    }
+}
+
+func checkPromptWriter() throws {
+    let pipe = Pipe()
+    defer { try? pipe.fileHandleForReading.close(); try? pipe.fileHandleForWriting.close() }
+    try protectPromptWriter(pipe.fileHandleForWriting)
+    try pipe.fileHandleForReading.close()
+    var byte: UInt8 = 67
+    let result = withUnsafePointer(to: &byte) { Darwin.write(pipe.fileHandleForWriting.fileDescriptor, $0, 1) }
+    guard result == -1 && errno == EPIPE else { throw FixtureFailure(stage: "prompt-writer-selftest") }
+}
+
+func cooperativeCompletionAllowed(mode: Bool, sent: Bool, channelError: Bool, nativeError: Bool,
+                                  normalExit: Bool, status: Int32) -> Bool {
+    mode && sent && !channelError && !nativeError && normalExit && status == 0
+}
+
+func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String, cancellation: String, noPrompt: String) {
     guard data.count < 64, let text = String(data: data, encoding: .utf8),
           text.isEmpty || text.hasSuffix("\n") else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     if text.contains("N") {
-        guard text == "N1\nE4:69\n" else { throw FixtureFailure(stage: "prompt-tail-protocol") }
-        return ("none", "E4:69", "none", "none", "none", true)
+        guard text == "N1\nE4:69\n" || text == "N2\nE4:0\n" else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+        let cooperative = text.hasPrefix("N2")
+        return ("none", cooperative ? "E4:0" : "E4:69", "none", "none", "none", cooperative ? "N2" : "N1")
     }
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
     guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|C[01]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8})$",
@@ -38,18 +61,29 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
     return (lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none",
         lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none",
         diagnostics.first.map(String.init) ?? "none", timings.first.map(String.init) ?? "none",
-        cancellations.first.map(String.init) ?? "none", false)
+        cancellations.first.map(String.init) ?? "none", "none")
 }
 
 func checkPromptFrames() throws {
+    try checkPromptWriter()
+    guard cooperativeCompletionAllowed(mode: true, sent: true, channelError: false, nativeError: false,
+        normalExit: true, status: 0) else { throw FixtureFailure(stage: "prompt-mode-selftest") }
+    for index in 0..<6 {
+        guard !cooperativeCompletionAllowed(mode: index != 0, sent: index != 1, channelError: index == 2,
+            nativeError: index == 3, normalExit: index != 4, status: index == 5 ? 1 : 0) else {
+            throw FixtureFailure(stage: "prompt-mode-negative")
+        }
+    }
     let positive = try promptFrames(Data("B8\nC1\nE4:108\n".utf8))
     guard positive.cancellation == "C1", positive.code == "E4:108",
-          try promptFrames(Data("N1\nE4:69\n".utf8)).noPrompt else {
+          try promptFrames(Data("N1\nE4:69\n".utf8)).noPrompt == "N1",
+          try promptFrames(Data("N2\nE4:0\n".utf8)).noPrompt == "N2" else {
         throw FixtureFailure(stage: "prompt-parser-selftest")
     }
     for value in ["C2\n", "C1\nC0\n", "C1", "C1\n", "C1\nE4:0\n", "C1\nE4:00\n", "C1\nE4:-0\n", "C1\nE3:65\n",
         "E4:108\nC1\n", "C1\nE4:108\nE4:108\n", "C1\nT0:0:0:0:0:0:0:0:0\n", String(repeating: "C0\n", count: 22),
-        "N0\nE4:69\n", "N1\nE4:0\n", "N1\n", "N1\nE4:69\nC1\n", "B8\nN1\nE4:69\n", "N1\nE4:69\nN1\n"] {
+        "N0\nE4:69\n", "N1\nE4:0\n", "N1\n", "N1\nE4:69\nC1\n", "B8\nN1\nE4:69\n", "N1\nE4:69\nN1\n",
+        "N2\n", "N2\nE4:69\n", "N2\nE4:0\nC1\n", "B8\nN2\nE4:0\n", "N2\nE4:0\nN2\n"] {
         do {
             _ = try promptFrames(Data(value.utf8))
         } catch { continue }
@@ -81,6 +115,7 @@ extension Fixture {
         try evidence?.start()
         let worker = Process()
         let input = Pipe()
+        try protectPromptWriter(input.fileHandleForWriting)
         let output = Pipe()
         worker.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         worker.arguments = ["-l", "JavaScript", script.path]
@@ -119,8 +154,11 @@ extension Fixture {
         if inputFixture { values["fixturePID"] = Int(getpid()) }
         else { values["cancelOnly"] = cancelOnly; values["allowNoPrompt"] = allowNoPrompt }
         let payload = try JSONSerialization.data(withJSONObject: values)
-        try input.fileHandleForWriting.write(contentsOf: payload)
-        try input.fileHandleForWriting.close()
+        guard !payload.isEmpty && payload.count <= 4096 else { throw FixtureFailure(stage: "prompt-payload-size") }
+        var framed = Data(String(format: "%04d", payload.count).utf8)
+        framed.append(payload)
+        try input.fileHandleForWriting.write(contentsOf: framed)
+        if !allowNoPrompt { try input.fileHandleForWriting.close() }
         let readyDeadline = Date().addingTimeInterval(2)
         var handshake = Data()
         while handshake.count < 32 && !handshake.contains(10) {
@@ -152,6 +190,18 @@ extension Fixture {
             }
         }
         event("INFO", "Native operation returned; awaiting owned worker exit.")
+        var completionSent = false
+        var completionError = false
+        if allowNoPrompt {
+            if operationError == nil && worker.isRunning {
+                do {
+                    try input.fileHandleForWriting.write(contentsOf: Data([67]))
+                    completionSent = true
+                } catch { completionError = true }
+            }
+            do { try input.fileHandleForWriting.close() } catch { completionError = true }
+            if completionError { completionSent = false }
+        }
         if inputFixture {
             let application = NSApplication.shared
             while worker.isRunning {
@@ -170,8 +220,15 @@ extension Fixture {
         if frames.code != "none" { event("INFO", "Owned worker diagnostic=" + frames.code) }
         if inputFixture && frames.cancellation != "none" { throw FixtureFailure(stage: "prompt-tail-protocol") }
         if frames.cancellation != "none" { event("INFO", "Owned cancellation diagnostic=" + frames.cancellation) }
-        if frames.noPrompt {
-            guard allowNoPrompt, worker.terminationStatus == 69, operationError == nil else {
+        if frames.noPrompt == "N2" {
+            guard cooperativeCompletionAllowed(mode: allowNoPrompt, sent: completionSent, channelError: completionError,
+                nativeError: operationError != nil, normalExit: worker.terminationReason == .exit,
+                status: worker.terminationStatus) else { throw FixtureFailure(stage: "prompt-cooperative-result") }
+            event("INFO", "Native trust completion acknowledged before a validated input target; fresh trust absence still required.")
+            return
+        }
+        if frames.noPrompt == "N1" {
+            guard allowNoPrompt, worker.terminationStatus == 69, operationError == nil, !completionError else {
                 throw FixtureFailure(stage: "prompt-noninteractive-result")
             }
             event("INFO", "Native trust operation completed without a validated input target; fresh trust absence still required.")
@@ -185,6 +242,7 @@ extension Fixture {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
         if let operationError { throw operationError }
+        if completionError { event("WARNING", "Unused completion notice failed after independently successful native input.") }
         if cancelOnly {
             event("INFO", "Exact owned prompt canceled; native cancellation returned and worker reaped.")
             return
