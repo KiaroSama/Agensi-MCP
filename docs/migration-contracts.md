@@ -152,8 +152,15 @@ not current observations, and implies no measured speedup. An unavailable focus
 attribute fails closed even if the batch's window list would otherwise reject the prompt.
 Fixture-only timing retains aggregate focus-check count and duration and separately measures
 password-event construction, flag assignment and posting. Earlier window/focus component buckets
-are historical and are not directly comparable to these event-operation measurements. JavaScript
-intervals use wall-clock milliseconds without an explicit Objective-C clock read; clock adjustment
+are historical and are not directly comparable to these event-operation measurements. Production
+emits one separate fixed four-number G diagnostic only after validating an input target: elapsed
+since readiness, secure-focus elapsed, password-phase guard attempts and aggregate guard duration.
+The count is not a key index; discovery, activation and final Return guards are outside that count.
+Failure elapsed may include the existing cancellation attempt. G coexists with bounded native
+boundary/focus/cancellation diagnostics; the strict mode-aware tail reader/parser allows fewer than
+96 bytes, rejects mixed fixture/production timing, duplicates and malformed frames, and preserves
+exact no-input completion tails. These observations add no AX queries and never waive an error.
+JavaScript intervals use wall-clock milliseconds without an explicit Objective-C clock read; clock adjustment
 and residual observation overhead limit timing conclusions. Swift independently records elapsed uptime.
 No password value is read back and no global keyboard or clipboard route is used. A single targeted
 Return pair submits through the same event channel; its neutral key-up targets only the original live process even if submission

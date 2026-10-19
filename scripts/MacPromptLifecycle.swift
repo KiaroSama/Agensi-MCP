@@ -79,8 +79,8 @@ func cooperativeCompletionAllowed(mode: Bool, sent: Bool, channelError: Bool, na
     mode && sent && !channelError && !nativeError && normalExit && status == 0
 }
 
-func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String, cancellation: String, noPrompt: String) {
-    guard data.count < 64, let text = String(data: data, encoding: .utf8),
+func promptFrames(_ data: Data, inputFixture: Bool = false) throws -> (boundary: String, code: String, focus: String, timing: String, cancellation: String, noPrompt: String) {
+    guard data.count < 96, let text = String(data: data, encoding: .utf8),
           text.isEmpty || text.hasSuffix("\n") else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     if text.contains("N") {
         guard text == "N1\nE4:69\n" || text == "N2\nE4:0\n" else { throw FixtureFailure(stage: "prompt-tail-protocol") }
@@ -88,7 +88,7 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
         return ("none", cooperative ? "E4:0" : "E4:69", "none", "none", "none", cooperative ? "N2" : "N1")
     }
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|C[01]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8})$",
+    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|C[01]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8}|G[0-9]{1,4}:[0-9]{1,4}:[0-9]{1,3}:[0-9]{1,4})$",
         options: .regularExpression) != nil }) else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     let cancellations = lines.filter { $0.hasPrefix("C") }
     guard cancellations.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
@@ -103,8 +103,11 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
         let parts = frame.dropFirst().split(separator: ":")
         guard let snapshot = Int(parts[1]), snapshot <= 511 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     }
+    let guards = lines.filter { $0.hasPrefix("G") }
     let timings = lines.filter { $0.hasPrefix("T") }
-    guard timings.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    guard guards.count <= 1, timings.count <= 1,
+          guards.isEmpty || (!inputFixture && timings.isEmpty),
+          timings.isEmpty || inputFixture else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     if let frame = timings.first {
         let parts = frame.dropFirst().split(separator: ":")
         guard let count = Int(parts[3]), count <= 999,
@@ -114,7 +117,7 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
     }
     return (lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none",
         lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none",
-        diagnostics.first.map(String.init) ?? "none", timings.first.map(String.init) ?? "none",
+        diagnostics.first.map(String.init) ?? "none", (guards.first ?? timings.first).map(String.init) ?? "none",
         cancellations.first.map(String.init) ?? "none", "none")
 }
 
@@ -127,6 +130,7 @@ func checkPromptFrames() throws {
         throw FixtureFailure(stage: "prompt-readiness-clock-selftest")
     }
     try checkPromptWriter()
+    try checkLegacyPromptNegatives()
     guard cooperativeCompletionAllowed(mode: true, sent: true, channelError: false, nativeError: false,
         normalExit: true, status: 0) else { throw FixtureFailure(stage: "prompt-mode-selftest") }
     for index in 0..<6 {
@@ -141,6 +145,28 @@ func checkPromptFrames() throws {
           try promptFrames(Data("N2\nE4:0\n".utf8)).noPrompt == "N2" else {
         throw FixtureFailure(stage: "prompt-parser-selftest")
     }
+    let guardPositive = "B1\nB2\nB3\nB4\nB5\nB6\nB7\nB8\nG9999:9999:999:9999\nD7:511\nC1\nE4:-1000000\n"
+    guard try promptFrames(Data(guardPositive.utf8)).timing == "G9999:9999:999:9999",
+          try promptFrames(Data("G1:9999:0:0\nE4:85\n".utf8)).code == "E4:85",
+          try promptFrames(Data("T1:2:3:128:4:5:6:7:8\nE4:0\n".utf8), inputFixture: true).timing.hasPrefix("T") else {
+        throw FixtureFailure(stage: "prompt-guard-parser-selftest")
+    }
+    for (value, fixture) in [
+        (guardPositive, true), ("T1:2:3:0:4:5:6:7:8\nE4:0\n", false),
+        ("G0:0:0:0\nG0:0:0:0\nE4:0\n", false), ("G0:0:0:0\nT0:0:0:0:0:0:0:0:0\nE4:0\n", false),
+        ("G0:0:0:0\nN2\nE4:0\n", false), ("G-1:0:0:0\nE4:85\n", false),
+        ("G10000:0:0:0\nE4:85\n", false), ("G0:0:1000:0\nE4:85\n", false),
+        ("G0:0:0\nE4:85\n", false), ("G0:0:0:0:0\nE4:85\n", false),
+        ("G0:0:0:0\nE4:85", false), ("X0\nE4:85\n", false), (String(repeating: "B1\n", count: 32), false)
+    ] {
+        do { _ = try promptFrames(Data(value.utf8), inputFixture: fixture) } catch { continue }
+        throw FixtureFailure(stage: "prompt-guard-parser-negative")
+    }
+    do { _ = try promptFrames(Data([0xc3, 0x28])) } catch { return }
+    throw FixtureFailure(stage: "prompt-guard-utf8-negative")
+}
+
+func checkLegacyPromptNegatives() throws {
     for value in ["C2\n", "C1\nC0\n", "C1", "C1\n", "C1\nE4:0\n", "C1\nE4:00\n", "C1\nE4:-0\n", "C1\nE3:65\n",
         "E4:108\nC1\n", "C1\nE4:108\nE4:108\n", "C1\nT0:0:0:0:0:0:0:0:0\n", String(repeating: "C0\n", count: 22),
         "N0\nE4:69\n", "N1\nE4:0\n", "N1\n", "N1\nE4:69\nC1\n", "B8\nN1\nE4:69\n", "N1\nE4:69\nN1\n",
@@ -191,9 +217,9 @@ extension Fixture {
         deadline.setEventHandler {
             let killed = worker.isRunning
             if killed { kill(worker.processIdentifier, SIGKILL); worker.waitUntilExit() }
-            let tail = try? output.fileHandleForReading.read(upToCount: 64)
+            let tail = try? output.fileHandleForReading.read(upToCount: 96)
             var diagnostic = "invalid"
-            if let tail, let frames = try? promptFrames(tail) {
+            if let tail, let frames = try? promptFrames(tail, inputFixture: inputFixture) {
                 diagnostic = "boundary=" + frames.boundary + " worker=" + frames.code + " focus=" + frames.focus + " timing=" + frames.timing
             }
             if let evidence {
@@ -280,7 +306,7 @@ extension Fixture {
         }
         worker.waitUntilExit()
         event("INFO", "Owned prompt worker reaped.")
-        let frames = try promptFrames(try output.fileHandleForReading.read(upToCount: 64) ?? Data())
+        let frames = try promptFrames(try output.fileHandleForReading.read(upToCount: 96) ?? Data(), inputFixture: inputFixture)
         if frames.focus != "none" { event("INFO", "Owned focus diagnostic=" + frames.focus) }
         if frames.timing != "none" { event("INFO", "Owned timing diagnostic=" + frames.timing) }
         if frames.code != "none" { event("INFO", "Owned worker diagnostic=" + frames.code) }

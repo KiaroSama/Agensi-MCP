@@ -121,16 +121,17 @@ function clockMilliseconds() {
 }
 function elapsed() { return (clockMilliseconds() - timing.start); }
 function emitTiming() {
-    if (!timing || timingSent) return;
+    if (!timing || timingSent || (!fixtureMode && !everValidatedTarget)) return;
     timingSent = true;
-    const values = [elapsed(), timing.secure, timing.first, timing.count, timing.total,
-        timing.createDown, timing.createUp, timing.flags, timing.post];
+    const values = fixtureMode ? [elapsed(), timing.secure, timing.first, timing.count, timing.total,
+        timing.createDown, timing.createUp, timing.flags, timing.post] :
+        [elapsed(), timing.secure, timing.count, timing.total];
     const encoded = values.map((value, index) => {
         if (!Number.isFinite(value) || value < 0) throw { errorNumber: 93 };
-        return Math.min(index === 3 ? 999 : 9999, Math.floor(value));
+        return Math.min(index === (fixtureMode ? 3 : 2) ? 999 : 9999, Math.floor(value));
     });
     $.NSFileHandle.fileHandleWithStandardOutput.writeData(
-        $('T' + encoded.join(':') + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
+        $((fixtureMode ? 'T' : 'G') + encoded.join(':') + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
 }
 function fail(code) {
     if ((code === 76 || code === 77) && focusFailure) code = focusFailure;
@@ -313,7 +314,7 @@ function usKeyboard() {
     }
 }
 function focused(window, secure, nonce, marker, deadline, pendingAllowed = false) {
-    const measured = fixtureMode && passwordPhase;
+    const measured = passwordPhase;
     const started = measured ? clockMilliseconds() : 0;
     try {
         if (Date.now() >= deadline) { if (!focusFailure) focusFailure = 85; return false; }
@@ -486,7 +487,7 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
         delay(0.01);
     }
     if (timing) timing.secure = elapsed();
-    passwordPhase = fixtureMode;
+    passwordPhase = true;
     // Physical ANSI-US positions; secure input may ignore Unicode overrides.
     const keys = { '0': 0x1d, '1': 0x12, '2': 0x13, '3': 0x14, '4': 0x15,
         '5': 0x17, '6': 0x16, '7': 0x1a, '8': 0x1c, '9': 0x19,
@@ -495,41 +496,41 @@ function enterPassword(window, username, secure, nonce, input, deadline) {
     for (let index = 0; index < input.password.length; index++) {
         const key = keys[input.password[index]];
         if (key === undefined) fail(64);
-        let operationStart = timing ? clockMilliseconds() : 0;
+        let operationStart = fixtureMode ? clockMilliseconds() : 0;
         const down = $.CGEventCreateKeyboardEvent(source, key, true);
-        if (timing) timing.createDown += (clockMilliseconds() - operationStart);
-        operationStart = timing ? clockMilliseconds() : 0;
+        if (fixtureMode) timing.createDown += (clockMilliseconds() - operationStart);
+        operationStart = fixtureMode ? clockMilliseconds() : 0;
         const up = $.CGEventCreateKeyboardEvent(source, key, false);
-        if (timing) timing.createUp += (clockMilliseconds() - operationStart);
+        if (fixtureMode) timing.createUp += (clockMilliseconds() - operationStart);
         if (!down || !up) fail(76);
-        operationStart = timing ? clockMilliseconds() : 0;
+        operationStart = fixtureMode ? clockMilliseconds() : 0;
         $.CGEventSetFlags(down, 0);
         $.CGEventSetFlags(up, 0);
-        if (timing) timing.flags += (clockMilliseconds() - operationStart);
+        if (fixtureMode) timing.flags += (clockMilliseconds() - operationStart);
         let sent = false;
         let released = false;
         pairedInput = true;
         try {
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(76);
-            operationStart = timing ? clockMilliseconds() : 0;
+            operationStart = fixtureMode ? clockMilliseconds() : 0;
             $.CGEventPostToPid(agentPID, down);
             sent = true;
-            if (timing) timing.post += (clockMilliseconds() - operationStart);
+            if (fixtureMode) timing.post += (clockMilliseconds() - operationStart);
             if (!focused(window, secure, nonce, input.marker, deadline)) fail(77);
-            operationStart = timing ? clockMilliseconds() : 0;
+            operationStart = fixtureMode ? clockMilliseconds() : 0;
             $.CGEventPostToPid(agentPID, up);
             released = true;
-            if (timing) timing.post += (clockMilliseconds() - operationStart);
+            if (fixtureMode) timing.post += (clockMilliseconds() - operationStart);
         } finally {
             pairedInput = false;
             if (sent && !released && agentApplication && !agentApplication.terminated &&
                 Number(agentApplication.processIdentifier) === agentPID) {
                 try {
-                    operationStart = timing ? clockMilliseconds() : 0;
+                    operationStart = fixtureMode ? clockMilliseconds() : 0;
                 } finally {
                     $.CGEventPostToPid(agentPID, up);
                 }
-                if (timing) timing.post += (clockMilliseconds() - operationStart);
+                if (fixtureMode) timing.post += (clockMilliseconds() - operationStart);
             }
         }
     }
@@ -569,7 +570,7 @@ function run() {
         stage = 4;
         $.NSFileHandle.fileHandleWithStandardOutput.writeData($('R\n').dataUsingEncoding($.NSUTF8StringEncoding));
         const deadline = Date.now() + 4000;
-        if (fixtureMode) timing = { start: clockMilliseconds(), secure: 9999, first: 9999,
+        timing = { start: clockMilliseconds(), secure: 9999, first: 9999,
             count: 0, total: 0, createDown: 0, createUp: 0, flags: 0, post: 0 };
         while (Date.now() < deadline) {
             completedWithoutInput(input, deadline);
