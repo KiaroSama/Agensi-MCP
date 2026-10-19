@@ -20,6 +20,89 @@ let passwordPhase = false;
 let timingSent = false;
 let windowDiagnosticAttempted = false;
 let windowDiagnosticCode = 98;
+let cancellationContext = null;
+function cancelOwnedPrompt() {
+    const context = cancellationContext;
+    cancellationContext = null;
+    context.input.password = '';
+    const deadline = Date.now() + 500;
+    function checkTime() { if (Date.now() >= deadline) throw new Error('cleanup-deadline'); }
+    function prepare(element) {
+        checkTime();
+        const remaining = (deadline - Date.now()) / 1000;
+        if (remaining <= 0 || Number($.AXUIElementSetMessagingTimeout(element, Math.min(0.2, remaining))) !== 0)
+            throw new Error('cleanup-timeout');
+        checkTime();
+    }
+    function read(element, name) {
+        prepare(element);
+        const value = Ref();
+        if (Number($.AXUIElementCopyAttributeValue(element, $(name), value)) !== 0)
+            throw new Error('cleanup-read');
+        checkTime();
+        return ObjC.castRefToObject(value[0]);
+    }
+    function array(value) {
+        if (!value || Number($.CFGetTypeID(value)) !== Number($.CFArrayGetTypeID()) ||
+            Number(value.count) > 160) throw new Error('cleanup-array');
+        return value;
+    }
+    function boundApplication() {
+        checkTime();
+        const agents = $.NSRunningApplication.runningApplicationsWithBundleIdentifier('com.apple.SecurityAgent');
+        if (Number(agents.count) !== 1 || !agentApplication || agentApplication.terminated)
+            throw new Error('cleanup-identity');
+        const current = agents.objectAtIndex(0);
+        if (Number(current.processIdentifier) !== agentPID || current.terminated || !current.executableURL ||
+            String(ObjC.unwrap(current.executableURL.absoluteString)) !== context.executable)
+            throw new Error('cleanup-identity');
+        const app = $.AXUIElementCreateApplication(agentPID);
+        const windows = array(read(app, 'AXWindows'));
+        if (Number(windows.count) !== 1 || !$.CFEqual(windows.objectAtIndex(0), context.window))
+            throw new Error('cleanup-window');
+        if (!$.CFEqual(read(context.nonce, 'AXWindow'), context.window)) throw new Error('cleanup-nonce-window');
+        const nonce = read(context.nonce, 'AXValue');
+        if (!nonce || Number($.CFGetTypeID(nonce)) !== Number($.CFStringGetTypeID()) ||
+            String(ObjC.unwrap(nonce)).indexOf(context.input.marker) === -1)
+            throw new Error('cleanup-nonce');
+        return app;
+    }
+    try {
+        boundApplication();
+        const button = read(context.window, 'AXCancelButton');
+        if (!button || Number($.CFGetTypeID(button)) !== Number($.AXUIElementGetTypeID()) ||
+            !$.CFEqual(read(button, 'AXWindow'), context.window) ||
+            ObjC.unwrap(read(button, 'AXEnabled')) !== true) throw new Error('cleanup-button');
+        prepare(button);
+        const actions = Ref();
+        if (Number($.AXUIElementCopyActionNames(button, actions)) !== 0) throw new Error('cleanup-actions');
+        checkTime();
+        const names = array(ObjC.castRefToObject(actions[0]));
+        let press = false;
+        for (let index = 0; index < Number(names.count); index++) {
+            const name = names.objectAtIndex(index);
+            if (Number($.CFGetTypeID(name)) !== Number($.CFStringGetTypeID())) throw new Error('cleanup-action-type');
+            if (String(ObjC.unwrap(name)) === 'AXPress') press = true;
+        }
+        if (!press) throw new Error('cleanup-action');
+        const app = boundApplication();
+        if (!$.CFEqual(read(context.window, 'AXCancelButton'), button) ||
+            !$.CFEqual(read(button, 'AXWindow'), context.window) ||
+            ObjC.unwrap(read(button, 'AXEnabled')) !== true) throw new Error('cleanup-button-changed');
+        prepare(button);
+        if (Number($.AXUIElementPerformAction(button, $('AXPress'))) !== 0) throw new Error('cleanup-press');
+        checkTime();
+        while (true) {
+            if (agentApplication.terminated) throw new Error('cleanup-process-ended');
+            const windows = array(read(app, 'AXWindows'));
+            if (Number(windows.count) === 0) return true;
+            if (Number(windows.count) !== 1 || !$.CFEqual(windows.objectAtIndex(0), context.window))
+                throw new Error('cleanup-window-changed');
+            checkTime();
+            delay(Math.min(0.01, Math.max(0, (deadline - Date.now()) / 1000)));
+        }
+    } catch (_) { return false; }
+}
 function clockMilliseconds() {
     const value = Date.now();
     if (!Number.isFinite(value)) throw { errorNumber: 93 };
@@ -41,6 +124,11 @@ function emitTiming() {
 function fail(code) {
     if ((code === 76 || code === 77) && focusFailure) code = focusFailure;
     if (pairedInput) throw { errorNumber: code };
+    if (!fixtureMode && cancellationContext) {
+        const canceled = cancelOwnedPrompt();
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData(
+            $(canceled ? 'C1\n' : 'C0\n').dataUsingEncoding($.NSUTF8StringEncoding));
+    }
     emitTiming();
     if (!fixtureMode && focusSeen) $.NSFileHandle.fileHandleWithStandardOutput.writeData(
         $('D' + focusSeen + ':' + focusSnapshot + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
@@ -241,6 +329,22 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
 function enterPassword(window, username, secure, nonce, input, deadline) {
     ObjC.bindFunction('CGEventPostToPid', ['void', ['int', 'void *']]);
     if (!usKeyboard()) fail(83);
+    if (!fixtureMode) {
+        function activationTarget() {
+            if (Date.now() >= deadline) fail(91);
+            if (!usKeyboard()) fail(83);
+            const app = agentElement();
+            if (app === null) fail(65);
+            const windows = children(app, 'AXWindows');
+            if (windows.length !== 1 || !$.CFEqual(windows[0], window)) fail(65);
+            if (text(nonce, 'AXValue').indexOf(input.marker) === -1) fail(67);
+            if (Date.now() >= deadline) fail(91);
+            return app;
+        }
+        if (Number($.AXUIElementSetAttributeValue(activationTarget(), $('AXFrontmost'), $(true))) !== 0) fail(106);
+        activationTarget();
+        if (Number($.AXUIElementPerformAction(window, $('AXRaise'))) !== 0) fail(107);
+    }
     while (true) {
         if (Date.now() >= deadline) fail(91);
         if (!usKeyboard()) fail(83);
@@ -369,7 +473,8 @@ function run() {
         const decoded = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
         if (!decoded) fail(64);
         const input = JSON.parse(ObjC.unwrap(decoded));
-        if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'marker,name,password') ||
+        if (Object.keys(input).sort().join(',') !== (fixtureMode ? 'fixturePID,marker,name,password' : 'cancelOnly,marker,name,password') ||
+            (!fixtureMode && typeof input.cancelOnly !== 'boolean') ||
             typeof input.marker !== 'string' || !/^mac-trust-[0-9a-f]{32}$/.test(input.marker) ||
             typeof input.name !== 'string' || !/^_agensitls[0-9a-f]{16}$/.test(input.name) ||
             typeof input.password !== 'string' || !/^[0-9a-f]{64}$/.test(input.password)) fail(64);
@@ -414,6 +519,12 @@ function run() {
                 approve = null;
             }
             if (controls && approve) {
+                if (!fixtureMode) {
+                    if (!agentApplication.executableURL) fail(65);
+                    cancellationContext = { window: controls.window, nonce: controls.nonces[0], input,
+                        executable: String(ObjC.unwrap(agentApplication.executableURL.absoluteString)) };
+                    if (input.cancelOnly) fail(108);
+                }
                 if (Number($.AXUIElementSetAttributeValue(controls.users[0], $('AXValue'), $(input.name))) !== 0) fail(68);
                 if (text(controls.users[0], 'AXValue') !== input.name) fail(74);
                 const source = enterPassword(controls.window, controls.users[0], controls.passwords[0], controls.nonces[0], input, deadline);

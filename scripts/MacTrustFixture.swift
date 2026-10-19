@@ -6,12 +6,19 @@ import OpenDirectory
 import Security
 
 struct FixtureFailure: Error { let stage: String }
-func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String) {
+func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus: String, timing: String, cancellation: String) {
     guard data.count < 64, let text = String(data: data, encoding: .utf8),
           text.isEmpty || text.hasSuffix("\n") else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
-    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8})$",
+    guard lines.allSatisfy({ $0.range(of: "^(B[1-8]|C[01]|E[1-4]:-?[0-9]{1,7}|D[0-7]:[0-9]{1,3}|T[0-9]{1,4}(:[0-9]{1,4}){8})$",
         options: .regularExpression) != nil }) else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    let cancellations = lines.filter { $0.hasPrefix("C") }
+    guard cancellations.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    if !cancellations.isEmpty {
+        let exits = lines.filter { $0.hasPrefix("E") }
+        guard exits.count == 1, let last = lines.last, last == exits[0],
+              last.hasPrefix("E4:"), let code = Int(last.dropFirst(3)), code != 0 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
+    }
     let diagnostics = lines.filter { $0.hasPrefix("D") }
     guard diagnostics.count <= 1 else { throw FixtureFailure(stage: "prompt-tail-protocol") }
     if let frame = diagnostics.first {
@@ -23,13 +30,28 @@ func promptFrames(_ data: Data) throws -> (boundary: String, code: String, focus
     if let frame = timings.first {
         let parts = frame.dropFirst().split(separator: ":")
         guard let count = Int(parts[3]), count <= 999,
-              !lines.contains(where: { $0.hasPrefix("B") || $0.hasPrefix("D") }) else {
+              !lines.contains(where: { $0.hasPrefix("B") || $0.hasPrefix("D") || $0.hasPrefix("C") }) else {
             throw FixtureFailure(stage: "prompt-tail-protocol")
         }
     }
     return (lines.last(where: { $0.hasPrefix("B") }).map(String.init) ?? "none",
         lines.last(where: { $0.hasPrefix("E") }).map(String.init) ?? "none",
-        diagnostics.first.map(String.init) ?? "none", timings.first.map(String.init) ?? "none")
+        diagnostics.first.map(String.init) ?? "none", timings.first.map(String.init) ?? "none",
+        cancellations.first.map(String.init) ?? "none")
+}
+
+func checkPromptFrames() throws {
+    let positive = try promptFrames(Data("B8\nC1\nE4:108\n".utf8))
+    guard positive.cancellation == "C1", positive.code == "E4:108" else {
+        throw FixtureFailure(stage: "prompt-parser-selftest")
+    }
+    for value in ["C2\n", "C1\nC0\n", "C1", "C1\n", "C1\nE4:0\n", "C1\nE4:00\n", "C1\nE4:-0\n", "C1\nE3:65\n",
+        "E4:108\nC1\n", "C1\nE4:108\nE4:108\n", "C1\nT0:0:0:0:0:0:0:0:0\n", String(repeating: "C0\n", count: 22)] {
+        do {
+            _ = try promptFrames(Data(value.utf8))
+        } catch { continue }
+        throw FixtureFailure(stage: "prompt-parser-negative")
+    }
 }
 
 struct AccountIdentity: Codable {
@@ -197,6 +219,7 @@ final class Fixture {
         guard getuid() == 0, env["GITHUB_ACTIONS"] == "true",
               env["RUNNER_ENVIRONMENT"] == "github-hosted",
               let workspace = env["GITHUB_WORKSPACE"] else { throw FixtureFailure(stage: "host-guard") }
+        try checkPromptFrames()
         let root = URL(fileURLWithPath: workspace).standardizedFileURL
         state = URL(fileURLWithPath: statePath).standardizedFileURL
         let stateName = state.lastPathComponent
@@ -388,7 +411,7 @@ final class Fixture {
         }
     }
     func withPrompt(_ identity: AccountIdentity, password: String, inputFixture: Bool = false,
-                    observeAuthorization: Bool = false, operation: () throws -> Void) throws {
+                    observeAuthorization: Bool = false, cancelOnly: Bool = false, operation: () throws -> Void) throws {
         let marker = URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent
         guard marker.hasPrefix("mac-trust-"), marker.count == 42,
               marker.dropFirst(10).allSatisfy({ $0.isHexDigit }) else { throw FixtureFailure(stage: "prompt-marker") }
@@ -442,6 +465,7 @@ final class Fixture {
         }
         var values: [String: Any] = ["marker": marker, "name": identity.name, "password": password]
         if inputFixture { values["fixturePID"] = Int(getpid()) }
+        else { values["cancelOnly"] = cancelOnly }
         let payload = try JSONSerialization.data(withJSONObject: values)
         try input.fileHandleForWriting.write(contentsOf: payload)
         try input.fileHandleForWriting.close()
@@ -492,14 +516,24 @@ final class Fixture {
         if frames.focus != "none" { event("INFO", "Owned focus diagnostic=" + frames.focus) }
         if frames.timing != "none" { event("INFO", "Owned timing diagnostic=" + frames.timing) }
         if frames.code != "none" { event("INFO", "Owned worker diagnostic=" + frames.code) }
-        guard worker.terminationStatus == 0 else {
+        if inputFixture && frames.cancellation != "none" { throw FixtureFailure(stage: "prompt-tail-protocol") }
+        if frames.cancellation != "none" { event("INFO", "Owned cancellation diagnostic=" + frames.cancellation) }
+        if cancelOnly {
+            guard worker.terminationStatus == 108, frames.code == "E4:108", frames.cancellation == "C1" else {
+                throw FixtureFailure(stage: "prompt-cancellation-worker")
+            }
+        } else if worker.terminationStatus != 0 {
             throw FixtureFailure(stage: "prompt-worker:" + String(worker.terminationStatus))
         }
         if let operationError { throw operationError }
+        if cancelOnly {
+            event("INFO", "Exact owned prompt canceled; native cancellation returned and worker reaped.")
+            return
+        }
         event("INFO", inputFixture ? "Owned public-input fixture verified and worker reaped; no authorization tested." :
             "Exact native prompt authenticated and owned worker reaped.")
     }
-    func verifyPrompt() throws {
+    func verifyPrompt(expectedCancellation: Bool = false) throws {
         var authorization: AuthorizationRef?
         try Self.check(AuthorizationCreate(nil, nil, [], &authorization), "authorization-create")
         guard let authorization else { throw FixtureFailure(stage: "authorization-reference") }
@@ -525,7 +559,9 @@ final class Fixture {
         let cleanup = AuthorizationFree(authorization, [.destroyRights])
         event("INFO", "Owned authorization destruction returned.")
         try Self.check(cleanup, "authorization-destroy")
-        try Self.check(status, "authorization-native-prompt")
+        if expectedCancellation {
+            guard status == errAuthorizationCanceled else { throw FixtureFailure(stage: "authorization-cancel-result") }
+        } else { try Self.check(status, "authorization-native-prompt") }
     }
     func removeTrust(path: String) throws {
         let url = URL(fileURLWithPath: path).standardizedFileURL
@@ -559,7 +595,7 @@ final class Fixture {
     }
     func run(action: String, paths: [String]) throws {
         if action == "recover" { try recover(); return }
-        guard action == "selftest" || (action == "input-selftest" && paths.isEmpty) ||
+        guard ((action == "selftest" || action == "cancel-selftest") && paths.isEmpty) || (action == "input-selftest" && paths.isEmpty) ||
               (action == "remove" && !paths.isEmpty && paths.count <= 8) else {
             throw FixtureFailure(stage: "arguments")
         }
@@ -591,15 +627,19 @@ final class Fixture {
         do {
             let identity = try createAccount(password: password)
             try verifyAccountLookup(identity)
-            if action == "selftest" {
-                try withPrompt(identity, password: password, observeAuthorization: true) { try verifyPrompt() }
+            if action == "selftest" || action == "cancel-selftest" {
+                let cancelOnly = action == "cancel-selftest"
+                try withPrompt(identity, password: password, observeAuthorization: !cancelOnly, cancelOnly: cancelOnly) {
+                    try verifyPrompt(expectedCancellation: cancelOnly)
+                }
                 throw FixtureFailure(stage: "controlled-restoration")
             } else {
                 for path in paths { try withPrompt(identity, password: password) { try removeTrust(path: path) } }
             }
         } catch { operationError = error }
         try recover()
-        if action == "selftest", let expected = operationError as? FixtureFailure, expected.stage == "controlled-restoration" {
+        if action == "selftest" || action == "cancel-selftest",
+           let expected = operationError as? FixtureFailure, expected.stage == "controlled-restoration" {
             event("INFO", "Controlled failure restored account and authorization state.")
             return
         }

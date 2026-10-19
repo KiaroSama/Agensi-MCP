@@ -120,7 +120,10 @@ access through the read-only preflight API; it never requests or grants that acc
 receives only the owned temporary credentials through stdin and accepts exactly one native prompt
 containing the unique invocation executable name. Password input uses one private-state physical
 key pair per hexadecimal character, sent only to that SecurityAgent process. Both actual input-source
-and keyboard-layout identifiers must remain US; the worker never switches layouts. It waits within
+and keyboard-layout identifiers must remain US; the worker never switches layouts. After exact
+SecurityAgent prompt discovery, it requests application AXFrontmost and raises only the original window
+once, revalidating live identity, singleton window, nonce, layout and deadline before each request.
+Rejected requests fail closed; triggering them does not prove activation. It still waits within
 the original deadline for the target application's active AX state and exact focused window, then
 requests username focus once and requires exact username focus and value before one targeted Tab pair. Its neutral key-up targets only
 the original live process because navigation changes focus. Secure-field focus must then be observed
@@ -152,6 +155,20 @@ the worker under the existing helper bound; it does not certify subscription rea
 is killed and reaped before the existing watchdog exits.
 Synthetic parser controls reject wrong identities, unrelated engines, duplicate anchors and invalid
 or oversized records. These diagnostics never replace the native authorization result.
+A separate cancellation selftest must return the exact native cancellation status, observe worker108
+and a single C1 frame, and remove its owned account before genuine positive authentication/trust changes.
+It enters no credentials or submission input; its normal protected-stdin payload is cleared before
+cancellation. On a production-worker failure after exact discovery,
+the worker clears its password and attempts cancellation once through the retained window's supported
+AXCancelButton/AXPress route. Fresh live bundle/PID/executable-URL consistency, singleton original window,
+nonce binding, enabled cancel control and containing-window checks remain mandatory. There is no
+unrelated-dialog dismissal, fallback or repeated action. A separate 500ms attempt deadline follows
+failed input, with each AX call limited by remaining time; this is not an extension of the four-second
+input deadline or a guaranteed hard native-call return. The unchanged seven-second worker owner and
+ten-second helper remain backstops. C1 means observed zero windows, not native cancellation or trust
+removal; ordinary failures retain their original nonzero result even after cancellation. Missing or
+changed ownership, unavailable actions, errors or expiration remain failed cleanup. Native return,
+trust absence and exact account cleanup are independently required.
 It never grants permissions, changes TCC or
 accepts unrelated dialogs. Missing graphics, consent or an unambiguous prompt fails closed before
 fixture trust changes. The worker is bounded/reaped, acquired authorization is destroyed and exact

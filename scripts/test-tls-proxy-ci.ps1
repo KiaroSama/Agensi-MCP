@@ -323,6 +323,7 @@ try {
             }
             if ($IsMacOS) {
                 Invoke-MacTrustFixture 'input-selftest'
+                Invoke-MacTrustFixture 'cancel-selftest'
                 Invoke-MacTrustFixture 'selftest'
             }
             $text = $utf8.GetString($original)
