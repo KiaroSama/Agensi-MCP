@@ -212,7 +212,9 @@ This local metadata filter is not cryptographic identity verification or private
 Native and accessibility snapshots are not atomic or one-to-one. After focus, this public receiver's
 worker requires the retained original window exactly once in the bounded AX list, the same focused
 window/field, and matching containing-window attributes for both field and nonce. Other entries never
-become input targets. Native auxiliary-window metadata remains diagnostic only: visibility or panel
+become input targets. The public fixture reads the nonce's containing window and marker together
+through one strict typed same-element batch on each guard; no result is reused across checks and no
+cross-object atomicity or measured speedup is implied. Native auxiliary-window metadata remains diagnostic only: visibility or panel
 status does not identify an input target. The closed original window must agree with the receiver's
 own successful action, exact committed-value comparisons and worker success; window absence alone
 is not a pass. Receiver failures report only fixed allowlisted stages before worker status handling

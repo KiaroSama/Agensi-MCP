@@ -303,17 +303,28 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
         const attributes = focusAttributes(app, pendingAllowed);
         const windows = attributes.objectAtIndex(0);
         if (Number(windows.count) === 0) { focusFailure = 94; return false; }
+        let nonceValue;
         if (fixtureMode) {
             let matches = 0;
             for (let index = 0; index < Number(windows.count); index++) {
                 if ($.CFEqual(windows.objectAtIndex(index), window)) matches++;
             }
             if (matches !== 1) { focusFailure = 96; return false; }
-            for (const element of [secure, nonce]) {
-                const owner = attribute(element, 'AXWindow');
-                if (!owner || Number($.CFGetTypeID(owner)) !== Number($.AXUIElementGetTypeID())) fail(66);
-                if (!$.CFEqual(owner, window)) { focusFailure = 96; return false; }
-            }
+            const owner = attribute(secure, 'AXWindow');
+            if (!owner || Number($.CFGetTypeID(owner)) !== Number($.AXUIElementGetTypeID())) fail(66);
+            if (!$.CFEqual(owner, window)) { focusFailure = 96; return false; }
+            const values = Ref();
+            const status = Number($.AXUIElementCopyMultipleAttributeValues(nonce, $(['AXWindow', 'AXValue']), 1, values));
+            if (status === -25204 && pendingAllowed) throw { snapshotPending: true };
+            if (status !== 0) fail(status);
+            const result = ObjC.castRefToObject(values[0]);
+            if (!result || Number($.CFGetTypeID(result)) !== Number($.CFArrayGetTypeID()) || Number(result.count) !== 2) fail(66);
+            const nonceOwner = result.objectAtIndex(0);
+            const value = result.objectAtIndex(1);
+            if (Number($.CFGetTypeID(nonceOwner)) !== Number($.AXUIElementGetTypeID()) ||
+                Number($.CFGetTypeID(value)) !== Number($.CFStringGetTypeID())) fail(66);
+            if (!$.CFEqual(nonceOwner, window)) { focusFailure = 96; return false; }
+            nonceValue = String(ObjC.unwrap(value));
         } else if (Number(windows.count) !== 1) {
             let originalMatches = 0;
             let firstNonoriginal = null;
@@ -349,7 +360,7 @@ function focused(window, secure, nonce, marker, deadline, pendingAllowed = false
             return false;
         }
         if (!fixtureMode && !$.CFEqual(windows.objectAtIndex(0), window)) { focusFailure = 96; return false; }
-        const matchingNonce = text(nonce, 'AXValue').indexOf(marker) !== -1;
+        const matchingNonce = (fixtureMode ? nonceValue : text(nonce, 'AXValue')).indexOf(marker) !== -1;
         if (!matchingNonce) { focusFailure = 88; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(1), window)) { focusFailure = 89; return false; }
         if (!$.CFEqual(attributes.objectAtIndex(2), secure)) { focusFailure = 90; return false; }
