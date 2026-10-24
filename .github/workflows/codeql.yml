@@ -20,7 +20,7 @@ jobs:
           foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) { "$name=$tempRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append }
           "CARGO_HOME=$env:GITHUB_WORKSPACE/.cache/cargo" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_DIR=$env:GITHUB_WORKSPACE/.cache/codeql-target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: rust
           build-mode: none
