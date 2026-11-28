@@ -108,7 +108,7 @@ sha2 = "=0.11.1"
 [dependencies]
 axum = "=0.8.9"
 tokio-util = "=0.7.20"
-anyhow = "=1.0.104"
+anyhow = "=1.0.105"
 async-trait = "=0.1.92"
 chrono = "=0.4.45"
 fs2 = "=0.4.3"
@@ -116,17 +116,17 @@ futures = "=0.3.34"
 http = "=1.5.0"
 md5 = "=0.8.1"
 percent-encoding = "=2.3.2"
-regex = "=1.13.1"
+regex = "=1.13.2"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "socks", "json", "stream", "form"] }
-rmcp = { version = "=3.5.1", default-features = false, features = ["client", "server", "auth", "reqwest", "transport-io", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "=3.11.0", default-features = false, features = ["client", "server", "auth", "reqwest", "transport-io", "transport-streamable-http-client-reqwest"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 subtle = "=2.6.1"
 tempfile = "=3.27.0"
-tokio = { version = "=1.54.0", features = ["full"] }
-url = "=2.5.8"
-uuid = { version = "=1.28.0", features = ["v4"] }
+tokio = { version = "=1.54.1", features = ["full"] }
+url = "=2.5.9"
+uuid = { version = "=1.29.3", features = ["v4"] }
 tokio-socks = "=0.5.3"
 fast-socks5 = "=1.0.0"
-log = "=0.4.34"
-toml = { version = "=1.1.8", default-features = false, features = ["std", "serde", "parse"] }
+log = "=0.4.35"
+toml = { version = "=1.2.3", default-features = false, features = ["std", "serde", "parse"] }
